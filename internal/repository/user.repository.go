@@ -1,7 +1,7 @@
 package repository
 
 import (
-	"github.com/allifiz/stockopname-api/internal/domain"
+	"github.com/allifiz/go-opname-api/internal/domain"
 )
 
 // UserRepository represents the repository for managing users

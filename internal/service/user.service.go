@@ -1,8 +1,8 @@
 package service
 
 import (
-	"github.com/allifiz/stockopname-api/internal/domain"
-	"github.com/allifiz/stockopname-api/internal/repository"
+	"github.com/allifiz/go-opname-api/internal/domain"
+	"github.com/allifiz/go-opname-api/internal/repository"
 )
 
 type UserService struct {
