@@ -45,6 +45,9 @@ func main() {
 	materialUsageService := service.NewMaterialUsageService(store)
 	httpHandler.RegisterMaterialUsageRoutes(app, httpHandler.NewMaterialUsageHandler(materialUsageService))
 
+	stockOpnameService := service.NewStockOpnameService(store)
+	httpHandler.RegisterStockOpnameRoutes(app, httpHandler.NewStockOpnameHandler(stockOpnameService))
+
 	go func() {
 		<-ctx.Done()
 		if err := app.Shutdown(); err != nil { log.Printf("shutdown server: %v", err) }
