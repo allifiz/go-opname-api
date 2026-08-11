@@ -11,6 +11,16 @@ WHERE scheduled_menu_id = $1
 ORDER BY created_at DESC
 LIMIT 1;
 
+-- name: LockPurchaseOrderItemForShortagePurchase :one
+SELECT
+    poi.*,
+    po.scheduled_menu_id,
+    po.status AS purchase_order_status
+FROM purchase_order_items poi
+JOIN purchase_orders po ON po.id = poi.purchase_order_id
+WHERE poi.id = $1
+FOR UPDATE OF poi;
+
 -- name: CreateAdditionalRequirement :one
 INSERT INTO additional_requirements (
     scheduled_menu_id,
