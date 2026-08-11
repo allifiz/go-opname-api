@@ -138,6 +138,18 @@ func (s *Store) ListReceiptDocuments(ctx context.Context, id pgtype.UUID) ([]db.
 	return s.queries.ListReceiptDocuments(ctx, id)
 }
 
+func (s *Store) GetDirectPurchase(ctx context.Context, id pgtype.UUID) (db.DirectPurchase, error) {
+	return s.queries.GetDirectPurchaseByID(ctx, id)
+}
+
+func (s *Store) ListDirectPurchasesByScheduledMenu(ctx context.Context, id pgtype.UUID) ([]db.DirectPurchase, error) {
+	return s.queries.ListDirectPurchasesByScheduledMenu(ctx, id)
+}
+
+func (s *Store) ListDirectPurchaseItems(ctx context.Context, id pgtype.UUID) ([]db.ListDirectPurchaseItemsRow, error) {
+	return s.queries.ListDirectPurchaseItems(ctx, id)
+}
+
 func (s *Store) WithTx(ctx context.Context, fn func(*db.Queries) error) error {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
