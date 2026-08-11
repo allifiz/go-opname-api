@@ -10,14 +10,8 @@ This file tracks the HTTP contract surface. It is intentionally concise; detaile
 - Conflict/invalid state transitions return `409`.
 - Insufficient stock for a business operation returns `422`.
 - Unexpected database/application failures return `500`.
-- Authentication/authorization is not implemented yet; audit user fields remain nullable until auth is added.
+- Authentication/authorization is not implemented yet; audit user IDs are temporarily supplied in request bodies where required.
 - `GET /health` remains outside `/api/v1`.
-
-## Existing
-
-### Health
-- `GET /health`
-- Status: implemented.
 
 ## Phase 1: Master Data
 
@@ -39,8 +33,6 @@ This file tracks the HTTP contract surface. It is intentionally concise; detaile
 - `POST /api/v1/periods`
 - Status: implemented.
 
-Create body accepts `name` and `start_date`; the service derives `end_date = start_date + 13 days`.
-
 ### Menu Templates
 - `GET /api/v1/menu-templates`
 - `GET /api/v1/menu-templates/:id`
@@ -53,15 +45,11 @@ Create body accepts `name` and `start_date`; the service derives `end_date = sta
 - `POST /api/v1/scheduled-menus`
 - Status: implemented.
 
-Creation validates `menu_date` inside the selected period and snapshots template components/materials transactionally.
-
-## Phase 3: Procurement
+## Phase 3: Procurement and PO
 
 ### Procurement Stock Check
 - `POST /api/v1/scheduled-menus/:id/procurement-stock-check`
 - Status: implemented.
-
-The operation aggregates gross requirement, locks material stock, accounts for active reservations, persists gross/existing/reserved/net quantities, and creates active reservations atomically.
 
 ### Procurement Request Read
 - `GET /api/v1/procurement-requests/:id`
@@ -74,37 +62,12 @@ The operation aggregates gross requirement, locks material stock, accounts for a
 - `POST /api/v1/procurement-requests/:id/reject`
 - Status: implemented.
 
-Until authentication exists, verify requires:
-```json
-{
-  "verified_by": "<existing-user-uuid>"
-}
-```
-
 ### Generate Purchase Order
 - `POST /api/v1/procurement-requests/:id/purchase-order`
 - Status: implemented.
 - Procurement request must be `VERIFIED`.
-- One purchase order is allowed per procurement request.
-- `ordered_qty` is always copied server-side from `net_procurement_qty`; clients cannot override it.
-- Only positive net-procurement items are included.
-- Every positive net-procurement item must be supplied exactly once in the request body.
-
-Example body:
-```json
-{
-  "delivery_date": "2026-08-20",
-  "items": [
-    {
-      "procurement_request_item_id": "<uuid>",
-      "supplier_name": "Supplier A",
-      "agreed_unit_price": "27500.00"
-    }
-  ]
-}
-```
-
-The generated PO starts in `VERIFIED` status and receives a server-generated `PO-YYYYMMDD-XXXXXXXXXX` number.
+- One PO per procurement request.
+- `ordered_qty` is copied server-side from verified `net_procurement_qty`.
 
 ### Purchase Order Read
 - `GET /api/v1/purchase-orders/:id`
@@ -114,31 +77,83 @@ The generated PO starts in `VERIFIED` status and receives a server-generated `PO
 ### H-1 PO Item Cancellation
 - `POST /api/v1/purchase-order-items/:id/cancel-h1`
 - Status: implemented.
-- Item must still be `WAITING`.
-- Cancellation is allowed only before the delivery date, so the latest valid day is H-1.
-- The service locks the PO item and material stock.
-- It verifies enough currently-unreserved stock exists to replace the full ordered quantity.
-- It creates an additional active stock reservation first, in the same transaction.
-- Only after the reservation succeeds is the PO item changed to `CANCELLED`.
-- Cancellation reason is fixed to `EXISTING_STOCK_SUFFICIENT` for this flow.
+- Replacement stock is reserved in the same transaction before cancellation.
 
-Until authentication exists, body requires:
+## Phase 4: Receiving
+
+### Create Receipt
+- `POST /api/v1/purchase-orders/:id/receipts`
+- Status: implemented, pending latest CI validation.
+
+Example body:
 ```json
 {
-  "cancelled_by": "<existing-user-uuid>"
+  "received_by": "<existing-user-uuid>",
+  "note": "Pengiriman pagi",
+  "items": [
+    {
+      "purchase_order_item_id": "<uuid>",
+      "received_qty": "12.5000"
+    },
+    {
+      "purchase_order_item_id": "<uuid>",
+      "received_qty": "0"
+    }
+  ],
+  "documents": [
+    {
+      "document_type": "INVOICE",
+      "file_url": "receipts/2026/08/invoice-001.pdf",
+      "file_name": "invoice-001.pdf"
+    }
+  ]
 }
 ```
 
-If unreserved stock is insufficient, the operation returns `422`. If the cancellation deadline has passed or item status is invalid, it returns `409`.
+Rules:
+- `received_qty` is a JSON string mapped to PostgreSQL `NUMERIC(18,4)`.
+- `received_qty` may be `0`; this records `NOT_RECEIVED` and creates no stock movement.
+- Material, unit, and agreed unit price are derived from the PO item, never accepted from the client.
+- Positive received quantity atomically creates stock `IN` and a `PO_RECEIPT` movement.
+- Multiple receipts for the same PO item are supported.
+- Item status uses cumulative vendor receipt quantity:
+  - cumulative = 0 -> `NOT_RECEIVED`
+  - 0 < cumulative < ordered -> `PARTIAL_RECEIVED`
+  - cumulative = ordered -> `RECEIVED`
+  - cumulative > ordered -> `OVER_RECEIVED`
+- Over-delivery is accepted in full and the full positive receipt quantity enters stock.
+- `actual_amount` is generated by PostgreSQL as `received_qty * agreed_unit_price`.
+- Receipt creation locks the PO item while calculating cumulative status so concurrent receipts for one item serialize.
 
-## Phase 4: Receiving and Direct Purchase
-Planned capabilities:
-- record PO receipt
-- support `NOT_RECEIVED`, `PARTIAL_RECEIVED`, `RECEIVED`, `OVER_RECEIVED`
-- record receipt documents/invoices
-- record `SHORTAGE` direct purchase
-- record `ADDITIONAL_REQUIREMENT` direct purchase
-- expose documents/actual amount to Accountant
+Supported document types:
+- `INVOICE`
+- `NOTA`
+- `PHOTO`
+- `OTHER`
+
+Receipt document API currently stores metadata/path/URL only; object/file upload storage is separate.
+
+### Receipt Read
+- `GET /api/v1/receipts/:id`
+- `GET /api/v1/purchase-orders/:id/receipts`
+- Status: implemented, pending latest CI validation.
+
+Receipt detail returns:
+- receipt header;
+- receipt items including `actual_amount`;
+- receipt documents.
+
+### PO Header Status During Receiving
+After a receipt transaction, PO header is recalculated:
+- no received progress -> `VERIFIED`
+- at least one partially/fully received item while others remain open -> `PARTIALLY_RECEIVED`
+- every PO item is terminal (`CANCELLED`, `RECEIVED`, `OVER_RECEIVED`, or `FULFILLED`) -> `COMPLETED`.
+
+## Phase 4B: Direct Purchase
+Still planned:
+- `SHORTAGE` direct purchase linked to deficient PO item.
+- `ADDITIONAL_REQUIREMENT` direct purchase for production increase after PO.
+- Stock IN atomically with direct purchase.
 
 ## Phase 5: Material Usage
 Planned capabilities:
