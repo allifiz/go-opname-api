@@ -1,10 +1,10 @@
 # Project Progress
 
 ## Current Phase
-Foundation, Menu, Inventory, and Procurement database layer implemented and executable validation is green in GitHub Actions.
+Core database layer is implemented and validated; phase-1/2 HTTP flows for master data, periods, menu templates, and scheduled-menu snapshots are implemented and awaiting the latest CI validation.
 
 ## Last Updated
-2026-08-11
+2026-08-12
 
 ## Documentation Rule
 - Update this file on every codebase change.
@@ -14,34 +14,23 @@ Foundation, Menu, Inventory, and Procurement database layer implemented and exec
 ## Completed
 - Business requirement V1 discussed and approved.
 - Repository documentation structure established on `main`.
-- Starter foundation migration replaced with V1 foundation schema.
-- `roles`, `users`, `units`, and `materials` implemented.
-- Role seeds implemented: Chef, Ahli Gizi, Pengawas Bahan Baku, Akuntan, Kepala SPPG.
-- Unit seeds implemented: KG, PCS, LT, IKAT, RENCENG, BOTOL.
-- Menu template schema implemented.
-- Scheduled-menu snapshot schema implemented.
-- Two-week period constraint implemented at database level.
-- Inventory current-stock snapshot implemented through `material_stocks`.
-- Inventory audit ledger implemented through `stock_movements`.
-- Stock reservation schema and lifecycle checks implemented.
-- Negative material stock is blocked by database constraint.
-- Foundation sqlc queries added.
-- Menu/scheduled-menu sqlc queries added.
-- Inventory/reservation sqlc queries added.
-- Procurement request and PO schema implemented.
-- Deferred FK from `stock_reservations.procurement_request_item_id` to `procurement_request_items.id` implemented.
-- Procurement and PO sqlc queries added.
-- Procurement quantity constraints and PO cancellation audit constraints implemented.
-- GitHub Actions CI workflow added at `.github/workflows/ci.yml`.
-- CI compatibility corrected to use Go `1.26.x`, Goose `v3.27.1`, and sqlc `v1.31.1`.
-- CI migration execution passed against PostgreSQL 17.
-- CI migration rollback to version 0 and re-apply passed.
-- `sqlc generate` passed in CI.
-- `go test ./...` passed in CI.
-- `go build ./...` passed in CI.
-- sqlc generated code was automatically committed to `main` by `github-actions[bot]` with commit `d3d3f0028ee02b99747a2d84eff55b1b8f69440c`.
-- `docs/architecture.md` synchronized with the working CI validation strategy.
-- `docs/database.md` synchronized with actual migration/query state.
+- Foundation, menu, inventory, and procurement migrations implemented.
+- Foundation/menu/inventory/procurement sqlc query sources implemented.
+- GitHub Actions CI added with PostgreSQL 17, Go `1.26.x`, Goose `v3.27.1`, and sqlc `v1.31.1`.
+- Migration up, rollback-to-zero, re-apply, sqlc generation, tests, and build previously passed in CI.
+- sqlc generated code is automatically synchronized by GitHub Actions.
+- Core repository store implemented at `internal/repository/store.go`.
+- Core service implemented at `internal/service/core_service.go`.
+- Core Fiber handlers/routes implemented at `internal/handler/http/core_handler.go`.
+- `cmd/api/main.go` wires repository -> service -> HTTP handler.
+- Unit listing endpoint implemented.
+- Material list/detail/create/update endpoints implemented.
+- Period list/create endpoints implemented; service derives the fixed 14-day end date.
+- Menu-template list/detail/create endpoints implemented.
+- Menu-template creation is transactional for template + components + materials.
+- Scheduled-menu create/detail endpoints implemented.
+- Scheduled-menu creation validates date inside period and transactionally snapshots template components/materials.
+- `docs/api.md` synchronized with the implemented HTTP surface.
 
 ## Implemented Migrations
 - `migrations/000001_create_foundation.sql`
@@ -49,21 +38,34 @@ Foundation, Menu, Inventory, and Procurement database layer implemented and exec
 - `migrations/000003_create_inventory.sql`
 - `migrations/000004_create_procurement.sql`
 
-## Implemented sqlc Query Sources
-- `internal/database/query/health.sql`
-- `internal/database/query/foundation.sql`
-- `internal/database/query/menu.sql`
-- `internal/database/query/inventory.sql`
-- `internal/database/query/procurement.sql`
+## Implemented HTTP Endpoints
+- `GET /health`
+- `GET /api/v1/units`
+- `GET /api/v1/materials`
+- `GET /api/v1/materials/:id`
+- `POST /api/v1/materials`
+- `PUT /api/v1/materials/:id`
+- `GET /api/v1/periods`
+- `POST /api/v1/periods`
+- `GET /api/v1/menu-templates`
+- `GET /api/v1/menu-templates/:id`
+- `POST /api/v1/menu-templates`
+- `GET /api/v1/scheduled-menus/:id`
+- `POST /api/v1/scheduled-menus`
 
-## Important Migration Note
-The original starter `000001_create_foundation.sql` was rewritten because the project is still in the initial build phase. A local development database that already ran the old starter migration must be recreated/reset before applying the new schema.
+## Important Implementation Notes
+- Authentication is not implemented yet, so `created_by` / `updated_by` remain nullable instead of using fabricated audit identities.
+- `qty_per_portion` is accepted as a JSON string and parsed to PostgreSQL `NUMERIC` to avoid float precision loss.
+- Scheduled menu data is copied from the selected template inside one database transaction.
+- The original starter migration was rewritten during initial development; old local databases that ran it must be reset/recreated.
 
 ## Validation Status
-GREEN through GitHub Actions.
+The database/query layer previously passed full GitHub Actions validation.
 
-Latest complete validation includes:
-- PostgreSQL 17 service startup.
+The latest HTTP/service/repository batch must pass the next CI run before being considered fully validated.
+
+Canonical CI checks:
+- PostgreSQL 17 startup.
 - Goose migration `up`.
 - Goose rollback `down-to 0`.
 - Goose migration `up` again.
@@ -71,22 +73,22 @@ Latest complete validation includes:
 - `go test ./...`.
 - `go build ./...`.
 
-The ChatGPT execution sandbox itself still does not have direct outbound internet/DNS access. This is intentionally bypassed by using the GitHub connector for repository operations and GitHub Actions for executable validation.
-
 ## In Progress
-- Start HTTP/service/repository implementation for material, period, menu template, and scheduled-menu flows.
+- Validate the newly implemented core repository/service/HTTP layer in GitHub Actions.
+- Fix any generated-type or compile mismatch surfaced by CI.
 
 ## Next
-1. Implement material repository/service/handler and routes.
-2. Implement period repository/service/handler and routes.
-3. Implement menu-template repository/service/handler and routes.
-4. Implement scheduled-menu snapshot transaction.
-5. Implement procurement stock-check + reservation transaction.
+1. Get the latest core API CI run green.
+2. Add menu-template update flow without mutating historical scheduled-menu snapshots.
+3. Implement procurement stock-check + stock-reservation transaction.
+4. Expose procurement request submit/verify/reject flow.
+5. Generate PO from verified net procurement.
 6. Add tests around reservation concurrency and negative-stock invariants.
-7. Continue with `000005_receiving.sql` after the current application flow is stable.
+7. Continue with `000005_receiving.sql` after procurement application flow is stable.
 
 ## Blockers / TBD
 - `KEPALA_SPPG` exists as a role, but operational permissions are still TBD.
+- Authentication/authorization is not implemented yet.
 - No application payment workflow is required.
 
 ## Latest Decisions
@@ -103,14 +105,15 @@ The ChatGPT execution sandbox itself still does not have direct outbound interne
 - `material_stocks` is a fast snapshot; `stock_movements` is the inventory audit source of truth.
 - Stock reservation is not a stock movement because it does not physically change quantity.
 - H-1 PO-item cancellation timing is enforced in the service transaction because it depends on the parent PO delivery date.
-- Routine development is performed directly on `main` while repository rules permit direct writes.
-- GitHub Actions is the canonical executable validation environment for migrations/sqlc/build checks initiated from this workflow.
-- CI uses Go `1.26.x` for current tooling compatibility while the application minimum remains Go `1.25.0` in `go.mod`.
+- GitHub Actions is the canonical executable validation environment.
+- CI uses Go `1.26.x` for tooling compatibility while application minimum remains Go `1.25.0` in `go.mod`.
 
 ## Changed Files (Latest Batch)
-- `.github/workflows/ci.yml`
-- `internal/database/generated/*` (regenerated by CI)
-- `docs/architecture.md`
+- `internal/repository/store.go`
+- `internal/service/core_service.go`
+- `internal/handler/http/core_handler.go`
+- `cmd/api/main.go`
+- `docs/api.md`
 - `docs/progress.md`
 
 ## Notes for Next Agent
