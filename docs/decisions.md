@@ -122,3 +122,21 @@ Current effective portions are the latest additional-requirement `new_portions`,
 
 ## D-040: Additional requirement does not rewrite original procurement
 The original procurement gross/existing/reserved/net snapshot remains historical. Additional production demand is represented separately in `additional_requirements` and direct-purchase records.
+
+## D-041: Material usage is one versioned lifecycle per scheduled menu
+A scheduled menu has one material-usage record. Revisions update that lifecycle, increment `version`, replace current usage items, and preserve historical approval rows.
+
+## D-042: Usage planned quantity follows effective portions
+Usage `planned_qty` is calculated from the scheduled-menu snapshot using the latest effective portion count, including later `ADDITIONAL_REQUIREMENT` increases. The client only supplies actual usage quantity.
+
+## D-043: Usage approval identity is role-validated server-side
+Until authentication exists, the client supplies `approver_id`; the server resolves the active user and only accepts users whose current role code is `CHEF` or `AKUNTAN`.
+
+## D-044: Approval uniqueness is role + entity version
+A usage version may have at most one Chef decision and one Accountant decision. Approval rows are never deleted when a new version is created.
+
+## D-045: Second usage approval applies inventory atomically
+When both required roles have approved the current usage version, stock decrement, `OUT / MATERIAL_USAGE` movements, reservation consumption, second approval insertion, and final `APPROVED` status all belong to the same transaction. If any material is insufficient, the whole transaction rolls back.
+
+## D-046: Usage completion consumes reservations
+When approved usage is applied, active reservations for the scheduled menu/material are marked `CONSUMED`, including materials whose actual usage is zero. Reservation consumption itself is not a stock movement.
