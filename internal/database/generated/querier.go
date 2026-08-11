@@ -78,6 +78,7 @@ type Querier interface {
 	GetStockReservationByID(ctx context.Context, id pgtype.UUID) (StockReservation, error)
 	GetUnitByID(ctx context.Context, id pgtype.UUID) (GetUnitByIDRow, error)
 	GetUnreservedStockByMaterial(ctx context.Context, materialID pgtype.UUID) (pgtype.Numeric, error)
+	GetUserByEmailWithRole(ctx context.Context, lower string) (GetUserByEmailWithRoleRow, error)
 	GetUserWithRole(ctx context.Context, id pgtype.UUID) (GetUserWithRoleRow, error)
 	IncreaseMaterialStock(ctx context.Context, arg IncreaseMaterialStockParams) (MaterialStock, error)
 	ListActiveStockReservationsByMaterial(ctx context.Context, materialID pgtype.UUID) ([]StockReservation, error)

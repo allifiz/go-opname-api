@@ -141,6 +141,42 @@ func (q *Queries) GetUnitByID(ctx context.Context, id pgtype.UUID) (GetUnitByIDR
 	return i, err
 }
 
+const getUserByEmailWithRole = `-- name: GetUserByEmailWithRole :one
+SELECT
+    u.id,
+    u.name,
+    u.email,
+    u.password_hash,
+    u.is_active,
+    r.code AS role_code
+FROM users u
+JOIN roles r ON r.id = u.role_id
+WHERE LOWER(u.email) = LOWER($1)
+`
+
+type GetUserByEmailWithRoleRow struct {
+	ID           pgtype.UUID `json:"id"`
+	Name         string      `json:"name"`
+	Email        string      `json:"email"`
+	PasswordHash string      `json:"password_hash"`
+	IsActive     bool        `json:"is_active"`
+	RoleCode     string      `json:"role_code"`
+}
+
+func (q *Queries) GetUserByEmailWithRole(ctx context.Context, lower string) (GetUserByEmailWithRoleRow, error) {
+	row := q.db.QueryRow(ctx, getUserByEmailWithRole, lower)
+	var i GetUserByEmailWithRoleRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Email,
+		&i.PasswordHash,
+		&i.IsActive,
+		&i.RoleCode,
+	)
+	return i, err
+}
+
 const getUserWithRole = `-- name: GetUserWithRole :one
 SELECT
     u.id,
