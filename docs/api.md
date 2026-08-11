@@ -7,6 +7,7 @@ This file tracks the HTTP contract surface. It is intentionally concise; detaile
 - JSON request/response.
 - Validation errors return `400` with `{ "error": "..." }`.
 - Missing rows return `404`.
+- Conflict/invalid state transitions return `409`.
 - Unexpected database/application failures return `500`.
 - Authentication/authorization is not implemented yet; audit user fields remain nullable until auth is added.
 - `GET /health` remains outside `/api/v1`.
@@ -110,17 +111,66 @@ Creation validates that `menu_date` is inside the selected period, then transact
 ```
 
 ## Phase 3: Procurement
-Planned capabilities:
-- calculate/review gross requirements
-- procurement stock check
-- create/update stock reservation
-- submit net procurement for Accountant verification
-- Accountant verify/reject
-- generate PO from verified net procurement
-- H-1 stock re-check
-- cancel individual PO item with reason
 
-Exact endpoint paths will be finalized when implementing this module.
+### Procurement Stock Check
+- `POST /api/v1/scheduled-menus/:id/procurement-stock-check`
+- Status: implemented.
+
+The operation:
+1. Aggregates gross material requirements from the scheduled-menu snapshot.
+2. Creates/locks each material stock row.
+3. Reads active reservations while holding the material-stock lock.
+4. Calculates existing stock, already-reserved stock, available allocation, and net procurement.
+5. Creates procurement request items.
+6. Creates an `ACTIVE` stock reservation only when allocation quantity is greater than zero.
+7. Commits the complete stock check atomically.
+
+Only one procurement request may exist for a scheduled menu. Repeating the stock-check endpoint for the same scheduled menu returns `409`.
+
+### Procurement Request Read
+- `GET /api/v1/procurement-requests/:id`
+- `GET /api/v1/scheduled-menus/:id/procurement-requests`
+- Status: implemented.
+
+Detail includes:
+- procurement-request header;
+- item snapshots (`gross_requirement_qty`, `existing_stock_qty`, `reserved_stock_qty`, `net_procurement_qty`);
+- reservations created for the request.
+
+### Submit for Accountant Verification
+- `POST /api/v1/procurement-requests/:id/submit`
+- Status: implemented.
+- Allowed current statuses: `DRAFT`, `REJECTED`.
+- Target status: `WAITING_VERIFICATION`.
+
+### Verify
+- `POST /api/v1/procurement-requests/:id/verify`
+- Status: implemented.
+- Allowed current status: `WAITING_VERIFICATION`.
+- Target status: `VERIFIED`.
+
+Authentication is not implemented yet, so the temporary request body must explicitly supply an existing Accountant user UUID for the audit FK:
+
+```json
+{
+  "verified_by": "<existing-user-uuid>"
+}
+```
+
+This temporary field should be removed from the public request contract once authentication provides the acting user identity.
+
+### Reject
+- `POST /api/v1/procurement-requests/:id/reject`
+- Status: implemented.
+- Allowed current status: `WAITING_VERIFICATION`.
+- Target status: `REJECTED`.
+- Rejection keeps the same procurement request lifecycle and its reservation; the request can be revised/resubmitted rather than duplicated.
+
+### Purchase Order
+Still planned:
+- generate PO from verified net procurement;
+- H-1 stock re-check;
+- cancel individual PO item with reason.
 
 ## Phase 4: Receiving and Direct Purchase
 Planned capabilities:
@@ -149,7 +199,14 @@ Planned capabilities:
 - apply approved adjustment to inventory ledger
 
 ## Important Business Errors
-The service layer should expose stable business error identifiers for at least:
+Stable service categories currently include:
+- invalid input -> `400`
+- resource not found -> `404`
+- conflict -> `409`
+- invalid status transition -> `409`
+- PostgreSQL unique violation -> `409`
+
+Planned explicit business identifiers include:
 - `INSUFFICIENT_STOCK`
 - `SHORTAGE_QTY_EXCEEDED`
 - `PO_CANCEL_DEADLINE_PASSED`
@@ -157,5 +214,3 @@ The service layer should expose stable business error identifiers for at least:
 - `INVALID_APPROVER_ROLE`
 - `INVALID_STATUS_TRANSITION`
 - `STOCK_ALREADY_RESERVED`
-
-Current core handlers use explicit validation messages. Stable procurement/stock error identifiers will be added with the procurement service.
