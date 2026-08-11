@@ -29,20 +29,19 @@ func main() {
 	}
 	defer db.Close()
 
-	app := fiber.New(fiber.Config{
-		AppName: "Stock Opname API",
-	})
+	app := fiber.New(fiber.Config{AppName: "Stock Opname API"})
 
 	app.Get("/health", func(c *fiber.Ctx) error {
-		return c.Status(fiber.StatusOK).JSON(fiber.Map{
-			"status": "ok",
-		})
+		return c.Status(fiber.StatusOK).JSON(fiber.Map{"status": "ok"})
 	})
 
 	store := repository.NewStore(db)
+
 	coreService := service.NewCoreService(store)
-	coreHandler := httpHandler.NewCoreHandler(coreService)
-	httpHandler.RegisterCoreRoutes(app, coreHandler)
+	httpHandler.RegisterCoreRoutes(app, httpHandler.NewCoreHandler(coreService))
+
+	procurementService := service.NewProcurementService(store)
+	httpHandler.RegisterProcurementRoutes(app, httpHandler.NewProcurementHandler(procurementService))
 
 	go func() {
 		<-ctx.Done()
