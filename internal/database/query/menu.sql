@@ -164,3 +164,18 @@ JOIN units u ON u.id = smcm.unit_id
 WHERE sm.id = $1
 GROUP BY smcm.material_id, m.name, smcm.unit_id, u.code
 ORDER BY m.name ASC;
+
+-- name: GetScheduledMenuPerPortionRequirements :many
+SELECT
+    smcm.material_id,
+    m.name AS material_name,
+    smcm.unit_id,
+    u.code AS unit_code,
+    SUM(smcm.qty_per_portion)::NUMERIC(18,4) AS qty_per_portion
+FROM scheduled_menu_components smc
+JOIN scheduled_menu_component_materials smcm ON smcm.scheduled_menu_component_id = smc.id
+JOIN materials m ON m.id = smcm.material_id
+JOIN units u ON u.id = smcm.unit_id
+WHERE smc.scheduled_menu_id = $1
+GROUP BY smcm.material_id, m.name, smcm.unit_id, u.code
+ORDER BY m.name ASC;
