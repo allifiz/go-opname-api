@@ -22,7 +22,7 @@ CREATE TABLE receipt_items (
     agreed_unit_price NUMERIC(18,2) NOT NULL,
     actual_amount NUMERIC(18,2) GENERATED ALWAYS AS (ROUND(received_qty * agreed_unit_price, 2)) STORED,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT chk_receipt_item_qty_positive CHECK (received_qty > 0),
+    CONSTRAINT chk_receipt_item_qty_non_negative CHECK (received_qty >= 0),
     CONSTRAINT chk_receipt_item_price_non_negative CHECK (agreed_unit_price >= 0),
     CONSTRAINT uq_receipt_purchase_order_item UNIQUE (receipt_id, purchase_order_item_id)
 );
