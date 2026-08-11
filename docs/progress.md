@@ -1,7 +1,7 @@
 # Project Progress
 
 ## Current Phase
-Core inventory V1 and concurrency hardening are green. Authentication/JWT + RBAC is implemented and undergoing final GitHub Actions validation.
+Core inventory V1, concurrency hardening, and authentication/JWT + RBAC are implemented and green. Next focus is secure user provisioning and API/product hardening.
 
 ## Last Updated
 2026-08-12
@@ -27,8 +27,8 @@ Core inventory V1 and concurrency hardening are green. Authentication/JWT + RBAC
   - `AKUNTAN`: procurement verification/rejection.
   - `CHEF` or `AKUNTAN`: material-usage and stock-adjustment decisions.
 - Operational audit actors that previously came from request bodies are overwritten at the HTTP boundary from JWT identity (`verified_by`, `cancelled_by`, `received_by`, `purchased_by`, usage `submitted_by`/`approver_id`, opname `performed_by`, adjustment `submitted_by`/`approver_id`).
-- Authentication integration tests cover bcrypt login against PostgreSQL, valid token claims, tampered token rejection, expired token rejection, missing-token `401`, wrong-role `403`, and allowed-role `200`.
-- Auth implementation through commit `b724df8` passed GitHub Actions run #78; the additional HTTP RBAC test is awaiting the latest run.
+- Authentication tests cover bcrypt login against PostgreSQL, valid token claims, tampered token rejection, expired token rejection, missing-token `401`, wrong-role `403`, and allowed-role `200`.
+- GitHub Actions run #79 passed PostgreSQL startup, migrations, rollback/re-apply, `sqlc generate`, all integration/concurrency/auth tests, build, and generated-code synchronization.
 
 ## Implemented Migrations
 - `000001_create_foundation.sql`
@@ -44,10 +44,9 @@ Core inventory V1 and concurrency hardening are green. Authentication/JWT + RBAC
 No new migration is required for JWT auth; the existing `users`, `roles`, and `password_hash` fields are used.
 
 ## Validation Status
-Core/concurrency: GREEN through GitHub Actions run #64.
-Auth implementation: GREEN through run #78 before the final middleware-role test commit; latest auth test run pending.
+GREEN through GitHub Actions run #79.
 
-Canonical checks:
+Validated checks:
 - PostgreSQL 17 startup
 - Goose migration up
 - rollback-to-zero
@@ -58,13 +57,12 @@ Canonical checks:
 - generated sqlc synchronization
 
 ## Next
-1. Get final auth/RBAC middleware test run green.
-2. Add secure initial-user provisioning/admin workflow; do not seed a public default password in migrations.
-3. Add menu-template update flow without mutating historical scheduled-menu snapshots.
-4. Add OpenAPI/Swagger and consistent response/error contracts.
-5. Add pagination/filtering where list volume can grow.
-6. Implement actual object storage for receipt documents.
-7. Resolve `KEPALA_SPPG` operational permissions.
+1. Add secure initial-user provisioning/admin workflow; do not seed a public default password in migrations.
+2. Add menu-template update flow without mutating historical scheduled-menu snapshots.
+3. Add OpenAPI/Swagger and consistent response/error contracts.
+4. Add pagination/filtering where list volume can grow.
+5. Implement actual object storage for receipt documents.
+6. Resolve `KEPALA_SPPG` operational permissions.
 
 ## Blockers / TBD
 - `KEPALA_SPPG` operational permissions remain TBD.
