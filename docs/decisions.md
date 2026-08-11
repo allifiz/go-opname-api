@@ -88,3 +88,6 @@ Do not use PostgreSQL enums for mutable role/unit master data. Use tables seeded
 
 ## D-025: Pragmatic Go layering
 Use `handler -> service -> repository -> sqlc/pgx`. Do not add architectural layers without an actual need.
+
+## D-026: One procurement request per scheduled menu
+A scheduled menu has one procurement request lifecycle. Accountant rejection revises/resubmits that same request instead of creating a second request. This prevents duplicate stock reservations and duplicate net-procurement snapshots for the same scheduled menu.
