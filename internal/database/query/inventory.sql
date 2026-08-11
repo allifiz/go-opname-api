@@ -47,6 +47,16 @@ WHERE material_id = sqlc.arg(material_id)
   AND unit_id = sqlc.arg(unit_id)
 RETURNING *;
 
+-- name: DecreaseMaterialStockIfSufficient :one
+UPDATE material_stocks
+SET
+    qty = qty - sqlc.arg(subtract_qty)::NUMERIC,
+    updated_at = NOW()
+WHERE material_id = sqlc.arg(material_id)
+  AND unit_id = sqlc.arg(unit_id)
+  AND qty >= sqlc.arg(subtract_qty)::NUMERIC
+RETURNING *;
+
 -- name: SumActiveReservedStockByMaterial :one
 SELECT COALESCE(SUM(qty), 0)::NUMERIC(18,4) AS reserved_qty
 FROM stock_reservations
@@ -160,6 +170,16 @@ SET
 WHERE id = $1
   AND status = 'ACTIVE'
 RETURNING *;
+
+-- name: ConsumeActiveReservationsByScheduledMenuMaterial :exec
+UPDATE stock_reservations
+SET
+    status = 'CONSUMED',
+    consumed_at = NOW(),
+    updated_at = NOW()
+WHERE scheduled_menu_id = $1
+  AND material_id = $2
+  AND status = 'ACTIVE';
 
 -- name: CreateStockMovement :one
 INSERT INTO stock_movements (
