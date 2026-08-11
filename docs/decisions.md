@@ -140,3 +140,21 @@ When both required roles have approved the current usage version, stock decremen
 
 ## D-046: Usage completion consumes reservations
 When approved usage is applied, active reservations for the scheduled menu/material are marked `CONSUMED`, including materials whose actual usage is zero. Reservation consumption itself is not a stock movement.
+
+## D-047: Stock opname snapshots system quantity
+Stock opname captures `system_qty` from the current locked `material_stocks` row and stores user-entered `physical_qty`. `difference_qty` is database-generated as physical minus system.
+
+## D-048: Opname difference never auto-adjusts stock
+A non-zero difference creates a DRAFT stock adjustment only. Inventory is unchanged until the adjustment receives both required approvals.
+
+## D-049: Adjustment quantity is server-derived
+Clients cannot submit `adjustment_qty`. It is copied from the opname item's generated difference. Revision changes `physical_qty` and reason, recalculates the difference, increments version, and leaves old approvals as history.
+
+## D-050: Stock adjustment approval mirrors usage approval
+Only active Chef and Accountant users may approve/reject. Decisions are unique by adjustment + role + entity version. Rejection moves the adjustment to `NEEDS_REVISION` without inventory effects.
+
+## D-051: Second adjustment approval applies inventory atomically
+The second current-version approval applies `ADJUSTMENT_IN` for positive difference or `ADJUSTMENT_OUT` for negative difference, writes `STOCK_ADJUSTMENT` movement, and marks the adjustment approved in one transaction. Negative stock causes the whole transaction, including the second approval, to roll back.
+
+## D-052: Stock opname completes after all adjustments
+A stock opname with differences becomes `COMPLETED` only after every generated adjustment is `APPROVED`. A matching opname has no adjustment records.
