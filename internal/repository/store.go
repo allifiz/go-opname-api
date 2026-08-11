@@ -122,6 +122,22 @@ func (s *Store) ListPurchaseOrderItems(ctx context.Context, id pgtype.UUID) ([]d
 	return s.queries.ListPurchaseOrderItems(ctx, id)
 }
 
+func (s *Store) GetReceipt(ctx context.Context, id pgtype.UUID) (db.Receipt, error) {
+	return s.queries.GetReceiptByID(ctx, id)
+}
+
+func (s *Store) ListReceiptsByPurchaseOrder(ctx context.Context, id pgtype.UUID) ([]db.Receipt, error) {
+	return s.queries.ListReceiptsByPurchaseOrder(ctx, id)
+}
+
+func (s *Store) ListReceiptItems(ctx context.Context, id pgtype.UUID) ([]db.ListReceiptItemsRow, error) {
+	return s.queries.ListReceiptItems(ctx, id)
+}
+
+func (s *Store) ListReceiptDocuments(ctx context.Context, id pgtype.UUID) ([]db.ReceiptDocument, error) {
+	return s.queries.ListReceiptDocuments(ctx, id)
+}
+
 func (s *Store) WithTx(ctx context.Context, fn func(*db.Queries) error) error {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
