@@ -11,6 +11,48 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type ApprovalDecision string
+
+const (
+	ApprovalDecisionAPPROVED ApprovalDecision = "APPROVED"
+	ApprovalDecisionREJECTED ApprovalDecision = "REJECTED"
+)
+
+func (e *ApprovalDecision) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ApprovalDecision(s)
+	case string:
+		*e = ApprovalDecision(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ApprovalDecision: %T", src)
+	}
+	return nil
+}
+
+type NullApprovalDecision struct {
+	ApprovalDecision ApprovalDecision `json:"approval_decision"`
+	Valid            bool             `json:"valid"` // Valid is true if ApprovalDecision is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullApprovalDecision) Scan(value interface{}) error {
+	if value == nil {
+		ns.ApprovalDecision, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ApprovalDecision.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullApprovalDecision) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ApprovalDecision), nil
+}
+
 type DirectPurchaseType string
 
 const (
@@ -51,6 +93,50 @@ func (ns NullDirectPurchaseType) Value() (driver.Value, error) {
 		return nil, nil
 	}
 	return string(ns.DirectPurchaseType), nil
+}
+
+type MaterialUsageStatus string
+
+const (
+	MaterialUsageStatusDRAFT           MaterialUsageStatus = "DRAFT"
+	MaterialUsageStatusWAITINGAPPROVAL MaterialUsageStatus = "WAITING_APPROVAL"
+	MaterialUsageStatusAPPROVED        MaterialUsageStatus = "APPROVED"
+	MaterialUsageStatusNEEDSREVISION   MaterialUsageStatus = "NEEDS_REVISION"
+)
+
+func (e *MaterialUsageStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = MaterialUsageStatus(s)
+	case string:
+		*e = MaterialUsageStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for MaterialUsageStatus: %T", src)
+	}
+	return nil
+}
+
+type NullMaterialUsageStatus struct {
+	MaterialUsageStatus MaterialUsageStatus `json:"material_usage_status"`
+	Valid               bool                `json:"valid"` // Valid is true if MaterialUsageStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullMaterialUsageStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.MaterialUsageStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.MaterialUsageStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullMaterialUsageStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.MaterialUsageStatus), nil
 }
 
 type ProcurementRequestStatus string
@@ -364,6 +450,48 @@ func (ns NullStockReservationStatus) Value() (driver.Value, error) {
 	return string(ns.StockReservationStatus), nil
 }
 
+type UsageApproverRole string
+
+const (
+	UsageApproverRoleCHEF    UsageApproverRole = "CHEF"
+	UsageApproverRoleAKUNTAN UsageApproverRole = "AKUNTAN"
+)
+
+func (e *UsageApproverRole) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = UsageApproverRole(s)
+	case string:
+		*e = UsageApproverRole(s)
+	default:
+		return fmt.Errorf("unsupported scan type for UsageApproverRole: %T", src)
+	}
+	return nil
+}
+
+type NullUsageApproverRole struct {
+	UsageApproverRole UsageApproverRole `json:"usage_approver_role"`
+	Valid             bool              `json:"valid"` // Valid is true if UsageApproverRole is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullUsageApproverRole) Scan(value interface{}) error {
+	if value == nil {
+		ns.UsageApproverRole, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.UsageApproverRole.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullUsageApproverRole) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.UsageApproverRole), nil
+}
+
 type AdditionalRequirement struct {
 	ID               pgtype.UUID        `json:"id"`
 	ScheduledMenuID  pgtype.UUID        `json:"scheduled_menu_id"`
@@ -423,6 +551,42 @@ type MaterialStock struct {
 	Qty        pgtype.Numeric     `json:"qty"`
 	UnitID     pgtype.UUID        `json:"unit_id"`
 	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
+type MaterialUsage struct {
+	ID              pgtype.UUID         `json:"id"`
+	ScheduledMenuID pgtype.UUID         `json:"scheduled_menu_id"`
+	UsageDate       pgtype.Date         `json:"usage_date"`
+	SubmittedBy     pgtype.UUID         `json:"submitted_by"`
+	Status          MaterialUsageStatus `json:"status"`
+	Version         int32               `json:"version"`
+	SubmittedAt     pgtype.Timestamptz  `json:"submitted_at"`
+	AppliedAt       pgtype.Timestamptz  `json:"applied_at"`
+	CreatedAt       pgtype.Timestamptz  `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz  `json:"updated_at"`
+}
+
+type MaterialUsageApproval struct {
+	ID              pgtype.UUID        `json:"id"`
+	MaterialUsageID pgtype.UUID        `json:"material_usage_id"`
+	ApproverRole    UsageApproverRole  `json:"approver_role"`
+	ApproverID      pgtype.UUID        `json:"approver_id"`
+	EntityVersion   int32              `json:"entity_version"`
+	Status          ApprovalDecision   `json:"status"`
+	Note            pgtype.Text        `json:"note"`
+	DecidedAt       pgtype.Timestamptz `json:"decided_at"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+}
+
+type MaterialUsageItem struct {
+	ID              pgtype.UUID        `json:"id"`
+	MaterialUsageID pgtype.UUID        `json:"material_usage_id"`
+	MaterialID      pgtype.UUID        `json:"material_id"`
+	PlannedQty      pgtype.Numeric     `json:"planned_qty"`
+	ActualQty       pgtype.Numeric     `json:"actual_qty"`
+	UnitID          pgtype.UUID        `json:"unit_id"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 }
 
 type MenuTemplate struct {

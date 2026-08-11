@@ -11,6 +11,27 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const consumeActiveReservationsByScheduledMenuMaterial = `-- name: ConsumeActiveReservationsByScheduledMenuMaterial :exec
+UPDATE stock_reservations
+SET
+    status = 'CONSUMED',
+    consumed_at = NOW(),
+    updated_at = NOW()
+WHERE scheduled_menu_id = $1
+  AND material_id = $2
+  AND status = 'ACTIVE'
+`
+
+type ConsumeActiveReservationsByScheduledMenuMaterialParams struct {
+	ScheduledMenuID pgtype.UUID `json:"scheduled_menu_id"`
+	MaterialID      pgtype.UUID `json:"material_id"`
+}
+
+func (q *Queries) ConsumeActiveReservationsByScheduledMenuMaterial(ctx context.Context, arg ConsumeActiveReservationsByScheduledMenuMaterialParams) error {
+	_, err := q.db.Exec(ctx, consumeActiveReservationsByScheduledMenuMaterial, arg.ScheduledMenuID, arg.MaterialID)
+	return err
+}
+
 const consumeStockReservation = `-- name: ConsumeStockReservation :one
 UPDATE stock_reservations
 SET
@@ -139,6 +160,35 @@ func (q *Queries) CreateStockReservation(ctx context.Context, arg CreateStockRes
 		&i.ConsumedAt,
 		&i.CreatedBy,
 		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const decreaseMaterialStockIfSufficient = `-- name: DecreaseMaterialStockIfSufficient :one
+UPDATE material_stocks
+SET
+    qty = qty - $1::NUMERIC,
+    updated_at = NOW()
+WHERE material_id = $2
+  AND unit_id = $3
+  AND qty >= $1::NUMERIC
+RETURNING material_id, qty, unit_id, updated_at
+`
+
+type DecreaseMaterialStockIfSufficientParams struct {
+	SubtractQty pgtype.Numeric `json:"subtract_qty"`
+	MaterialID  pgtype.UUID    `json:"material_id"`
+	UnitID      pgtype.UUID    `json:"unit_id"`
+}
+
+func (q *Queries) DecreaseMaterialStockIfSufficient(ctx context.Context, arg DecreaseMaterialStockIfSufficientParams) (MaterialStock, error) {
+	row := q.db.QueryRow(ctx, decreaseMaterialStockIfSufficient, arg.SubtractQty, arg.MaterialID, arg.UnitID)
+	var i MaterialStock
+	err := row.Scan(
+		&i.MaterialID,
+		&i.Qty,
+		&i.UnitID,
 		&i.UpdatedAt,
 	)
 	return i, err

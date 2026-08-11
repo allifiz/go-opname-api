@@ -487,6 +487,69 @@ func (q *Queries) GetScheduledMenuPerPortionRequirements(ctx context.Context, sc
 	return items, nil
 }
 
+const getScheduledMenuUsageRequirements = `-- name: GetScheduledMenuUsageRequirements :many
+WITH effective_portions AS (
+    SELECT COALESCE(
+        (SELECT ar.new_portions
+         FROM additional_requirements ar
+         WHERE ar.scheduled_menu_id = sm.id
+         ORDER BY ar.created_at DESC
+         LIMIT 1),
+        sm.planned_portions
+    )::INTEGER AS portions
+    FROM scheduled_menus sm
+    WHERE sm.id = $1
+)
+SELECT
+    smcm.material_id,
+    m.name AS material_name,
+    smcm.unit_id,
+    u.code AS unit_code,
+    SUM(smcm.qty_per_portion * ep.portions)::NUMERIC(18,4) AS planned_qty
+FROM scheduled_menu_components smc
+JOIN scheduled_menu_component_materials smcm ON smcm.scheduled_menu_component_id = smc.id
+JOIN materials m ON m.id = smcm.material_id
+JOIN units u ON u.id = smcm.unit_id
+CROSS JOIN effective_portions ep
+WHERE smc.scheduled_menu_id = $1
+GROUP BY smcm.material_id, m.name, smcm.unit_id, u.code
+ORDER BY m.name ASC
+`
+
+type GetScheduledMenuUsageRequirementsRow struct {
+	MaterialID   pgtype.UUID    `json:"material_id"`
+	MaterialName string         `json:"material_name"`
+	UnitID       pgtype.UUID    `json:"unit_id"`
+	UnitCode     string         `json:"unit_code"`
+	PlannedQty   pgtype.Numeric `json:"planned_qty"`
+}
+
+func (q *Queries) GetScheduledMenuUsageRequirements(ctx context.Context, scheduledMenuID pgtype.UUID) ([]GetScheduledMenuUsageRequirementsRow, error) {
+	rows, err := q.db.Query(ctx, getScheduledMenuUsageRequirements, scheduledMenuID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetScheduledMenuUsageRequirementsRow
+	for rows.Next() {
+		var i GetScheduledMenuUsageRequirementsRow
+		if err := rows.Scan(
+			&i.MaterialID,
+			&i.MaterialName,
+			&i.UnitID,
+			&i.UnitCode,
+			&i.PlannedQty,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listMenuTemplateComponentMaterials = `-- name: ListMenuTemplateComponentMaterials :many
 SELECT
     mtcm.id,

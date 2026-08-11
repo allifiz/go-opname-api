@@ -141,6 +141,39 @@ func (q *Queries) GetUnitByID(ctx context.Context, id pgtype.UUID) (GetUnitByIDR
 	return i, err
 }
 
+const getUserWithRole = `-- name: GetUserWithRole :one
+SELECT
+    u.id,
+    u.name,
+    u.email,
+    u.is_active,
+    r.code AS role_code
+FROM users u
+JOIN roles r ON r.id = u.role_id
+WHERE u.id = $1
+`
+
+type GetUserWithRoleRow struct {
+	ID       pgtype.UUID `json:"id"`
+	Name     string      `json:"name"`
+	Email    string      `json:"email"`
+	IsActive bool        `json:"is_active"`
+	RoleCode string      `json:"role_code"`
+}
+
+func (q *Queries) GetUserWithRole(ctx context.Context, id pgtype.UUID) (GetUserWithRoleRow, error) {
+	row := q.db.QueryRow(ctx, getUserWithRole, id)
+	var i GetUserWithRoleRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Email,
+		&i.IsActive,
+		&i.RoleCode,
+	)
+	return i, err
+}
+
 const listMaterials = `-- name: ListMaterials :many
 SELECT
     m.id,
