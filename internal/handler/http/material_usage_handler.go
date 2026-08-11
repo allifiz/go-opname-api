@@ -6,44 +6,41 @@ import (
 )
 
 type MaterialUsageHandler struct { service *service.MaterialUsageService }
-
 func NewMaterialUsageHandler(service *service.MaterialUsageService) *MaterialUsageHandler { return &MaterialUsageHandler{service: service} }
 
 func RegisterMaterialUsageRoutes(app *fiber.App, handler *MaterialUsageHandler) {
     api := app.Group("/api/v1")
-    api.Post("/scheduled-menus/:id/material-usage", handler.Create)
+    pengawas := RequireRoles("PENGAWAS_BAHAN_BAKU")
+    approver := RequireRoles("CHEF", "AKUNTAN")
+    api.Post("/scheduled-menus/:id/material-usage", pengawas, handler.Create)
     api.Get("/material-usages/:id", handler.Get)
-    api.Put("/material-usages/:id", handler.Update)
-    api.Post("/material-usages/:id/submit", handler.Submit)
-    api.Post("/material-usages/:id/decision", handler.Decide)
+    api.Put("/material-usages/:id", pengawas, handler.Update)
+    api.Post("/material-usages/:id/submit", pengawas, handler.Submit)
+    api.Post("/material-usages/:id/decision", approver, handler.Decide)
 }
 
 func (h *MaterialUsageHandler) Create(c *fiber.Ctx) error {
     var input service.CreateMaterialUsageInput
     if err := c.BodyParser(&input); err != nil { return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error":"invalid json body"}) }
+    input.SubmittedBy = ActorID(c)
     data, err := h.service.Create(c.UserContext(), c.Params("id"), input)
     if err != nil { return respondError(c, err) }
     return c.Status(fiber.StatusCreated).JSON(fiber.Map{"data":data})
 }
 
-func (h *MaterialUsageHandler) Get(c *fiber.Ctx) error {
-    data, err := h.service.Get(c.UserContext(), c.Params("id"))
-    if err != nil { return respondError(c, err) }
-    return c.JSON(fiber.Map{"data":data})
-}
+func (h *MaterialUsageHandler) Get(c *fiber.Ctx) error { data, err := h.service.Get(c.UserContext(), c.Params("id")); if err != nil { return respondError(c, err) }; return c.JSON(fiber.Map{"data":data}) }
 
 func (h *MaterialUsageHandler) Update(c *fiber.Ctx) error {
     var input service.CreateMaterialUsageInput
     if err := c.BodyParser(&input); err != nil { return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error":"invalid json body"}) }
+    input.SubmittedBy = ActorID(c)
     data, err := h.service.Update(c.UserContext(), c.Params("id"), input)
     if err != nil { return respondError(c, err) }
     return c.JSON(fiber.Map{"data":data})
 }
 
 func (h *MaterialUsageHandler) Submit(c *fiber.Ctx) error {
-    var body struct { SubmittedBy string `json:"submitted_by"` }
-    if err := c.BodyParser(&body); err != nil { return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error":"invalid json body"}) }
-    data, err := h.service.Submit(c.UserContext(), c.Params("id"), body.SubmittedBy)
+    data, err := h.service.Submit(c.UserContext(), c.Params("id"), ActorID(c))
     if err != nil { return respondError(c, err) }
     return c.JSON(fiber.Map{"data":data})
 }
@@ -51,6 +48,7 @@ func (h *MaterialUsageHandler) Submit(c *fiber.Ctx) error {
 func (h *MaterialUsageHandler) Decide(c *fiber.Ctx) error {
     var input service.DecideMaterialUsageInput
     if err := c.BodyParser(&input); err != nil { return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error":"invalid json body"}) }
+    input.ApproverID = ActorID(c)
     data, err := h.service.Decide(c.UserContext(), c.Params("id"), input)
     if err != nil { return respondError(c, err) }
     return c.JSON(fiber.Map{"data":data})
