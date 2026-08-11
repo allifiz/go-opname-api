@@ -26,9 +26,14 @@ func main() {
 	defer db.Close()
 
 	app := fiber.New(fiber.Config{AppName: "Stock Opname API"})
-	app.Get("/health", func(c *fiber.Ctx) error { return c.Status(fiber.StatusOK).JSON(fiber.Map{"status": "ok"}) })
+	app.Get("/health", func(c *fiber.Ctx) error { return c.Status(fiber.StatusOK).JSON(fiber.Map{"status":"ok"}) })
 
 	store := repository.NewStore(db)
+	authService := service.NewAuthService(store, cfg.JWTSecret)
+	httpHandler.RegisterPublicAuthRoutes(app, httpHandler.NewAuthHandler(authService))
+
+	app.Use("/api/v1", httpHandler.AuthRequired(cfg.JWTSecret))
+	httpHandler.RegisterProtectedAuthRoutes(app)
 
 	coreService := service.NewCoreService(store)
 	httpHandler.RegisterCoreRoutes(app, httpHandler.NewCoreHandler(coreService))
