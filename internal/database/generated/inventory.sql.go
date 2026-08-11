@@ -299,6 +299,27 @@ func (q *Queries) GetStockReservationByID(ctx context.Context, id pgtype.UUID) (
 	return i, err
 }
 
+const getUnreservedStockByMaterial = `-- name: GetUnreservedStockByMaterial :one
+SELECT GREATEST(
+    ms.qty - COALESCE((
+        SELECT SUM(sr.qty)
+        FROM stock_reservations sr
+        WHERE sr.material_id = ms.material_id
+          AND sr.status = 'ACTIVE'
+    ), 0),
+    0
+)::NUMERIC(18,4) AS available_stock_qty
+FROM material_stocks ms
+WHERE ms.material_id = $1
+`
+
+func (q *Queries) GetUnreservedStockByMaterial(ctx context.Context, materialID pgtype.UUID) (pgtype.Numeric, error) {
+	row := q.db.QueryRow(ctx, getUnreservedStockByMaterial, materialID)
+	var available_stock_qty pgtype.Numeric
+	err := row.Scan(&available_stock_qty)
+	return available_stock_qty, err
+}
+
 const listActiveStockReservationsByMaterial = `-- name: ListActiveStockReservationsByMaterial :many
 SELECT id, scheduled_menu_id, procurement_request_item_id, material_id, qty, unit_id, status, reserved_at, released_at, consumed_at, created_by, created_at, updated_at
 FROM stock_reservations

@@ -279,6 +279,29 @@ func (q *Queries) GetPurchaseOrderByID(ctx context.Context, id pgtype.UUID) (Pur
 	return i, err
 }
 
+const getPurchaseOrderByProcurementRequest = `-- name: GetPurchaseOrderByProcurementRequest :one
+SELECT id, procurement_request_id, scheduled_menu_id, po_number, delivery_date, status, created_by, created_at, updated_at
+FROM purchase_orders
+WHERE procurement_request_id = $1
+`
+
+func (q *Queries) GetPurchaseOrderByProcurementRequest(ctx context.Context, procurementRequestID pgtype.UUID) (PurchaseOrder, error) {
+	row := q.db.QueryRow(ctx, getPurchaseOrderByProcurementRequest, procurementRequestID)
+	var i PurchaseOrder
+	err := row.Scan(
+		&i.ID,
+		&i.ProcurementRequestID,
+		&i.ScheduledMenuID,
+		&i.PoNumber,
+		&i.DeliveryDate,
+		&i.Status,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const listProcurementRequestItems = `-- name: ListProcurementRequestItems :many
 SELECT
     pri.id,
@@ -502,6 +525,52 @@ func (q *Queries) ListPurchaseOrdersByScheduledMenu(ctx context.Context, schedul
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockPurchaseOrderItemForCancellation = `-- name: LockPurchaseOrderItemForCancellation :one
+SELECT
+    poi.id,
+    poi.purchase_order_id,
+    poi.procurement_request_item_id,
+    poi.material_id,
+    poi.ordered_qty,
+    poi.unit_id,
+    poi.status,
+    po.scheduled_menu_id,
+    po.delivery_date
+FROM purchase_order_items poi
+JOIN purchase_orders po ON po.id = poi.purchase_order_id
+WHERE poi.id = $1
+FOR UPDATE OF poi, po
+`
+
+type LockPurchaseOrderItemForCancellationRow struct {
+	ID                       pgtype.UUID             `json:"id"`
+	PurchaseOrderID          pgtype.UUID             `json:"purchase_order_id"`
+	ProcurementRequestItemID pgtype.UUID             `json:"procurement_request_item_id"`
+	MaterialID               pgtype.UUID             `json:"material_id"`
+	OrderedQty               pgtype.Numeric          `json:"ordered_qty"`
+	UnitID                   pgtype.UUID             `json:"unit_id"`
+	Status                   PurchaseOrderItemStatus `json:"status"`
+	ScheduledMenuID          pgtype.UUID             `json:"scheduled_menu_id"`
+	DeliveryDate             pgtype.Date             `json:"delivery_date"`
+}
+
+func (q *Queries) LockPurchaseOrderItemForCancellation(ctx context.Context, id pgtype.UUID) (LockPurchaseOrderItemForCancellationRow, error) {
+	row := q.db.QueryRow(ctx, lockPurchaseOrderItemForCancellation, id)
+	var i LockPurchaseOrderItemForCancellationRow
+	err := row.Scan(
+		&i.ID,
+		&i.PurchaseOrderID,
+		&i.ProcurementRequestItemID,
+		&i.MaterialID,
+		&i.OrderedQty,
+		&i.UnitID,
+		&i.Status,
+		&i.ScheduledMenuID,
+		&i.DeliveryDate,
+	)
+	return i, err
 }
 
 const rejectProcurementRequest = `-- name: RejectProcurementRequest :one
