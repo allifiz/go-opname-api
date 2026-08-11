@@ -194,3 +194,31 @@ JOIN units u ON u.id = smcm.unit_id
 WHERE smc.scheduled_menu_id = sqlc.arg(scheduled_menu_id)
 GROUP BY smcm.material_id, m.name, smcm.unit_id, u.code
 ORDER BY m.name ASC;
+
+-- name: GetScheduledMenuUsageRequirements :many
+WITH effective_portions AS (
+    SELECT COALESCE(
+        (SELECT ar.new_portions
+         FROM additional_requirements ar
+         WHERE ar.scheduled_menu_id = sm.id
+         ORDER BY ar.created_at DESC
+         LIMIT 1),
+        sm.planned_portions
+    )::INTEGER AS portions
+    FROM scheduled_menus sm
+    WHERE sm.id = $1
+)
+SELECT
+    smcm.material_id,
+    m.name AS material_name,
+    smcm.unit_id,
+    u.code AS unit_code,
+    SUM(smcm.qty_per_portion * ep.portions)::NUMERIC(18,4) AS planned_qty
+FROM scheduled_menu_components smc
+JOIN scheduled_menu_component_materials smcm ON smcm.scheduled_menu_component_id = smc.id
+JOIN materials m ON m.id = smcm.material_id
+JOIN units u ON u.id = smcm.unit_id
+CROSS JOIN effective_portions ep
+WHERE smc.scheduled_menu_id = $1
+GROUP BY smcm.material_id, m.name, smcm.unit_id, u.code
+ORDER BY m.name ASC;
