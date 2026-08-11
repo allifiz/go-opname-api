@@ -43,6 +43,9 @@ func main() {
 	procurementService := service.NewProcurementService(store)
 	httpHandler.RegisterProcurementRoutes(app, httpHandler.NewProcurementHandler(procurementService))
 
+	receivingService := service.NewReceivingService(store)
+	httpHandler.RegisterReceivingRoutes(app, httpHandler.NewReceivingHandler(receivingService))
+
 	go func() {
 		<-ctx.Done()
 		if err := app.Shutdown(); err != nil {
