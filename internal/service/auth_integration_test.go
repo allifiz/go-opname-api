@@ -16,8 +16,8 @@ func TestAuthLoginIssuesValidToken(t *testing.T) {
 	email := uniqueName("auth") + "@test.local"
 	userID := scalarID(t, pool, `
 		INSERT INTO users(role_id,name,email,password_hash)
-		SELECT id,$2,$3,$4 FROM roles WHERE code='AKUNTAN'
-		RETURNING id::text`, "unused", uniqueName("auth-user"), email, string(hash))
+		SELECT id,$1,$2,$3 FROM roles WHERE code='AKUNTAN'
+		RETURNING id::text`, uniqueName("auth-user"), email, string(hash))
 
 	secret := "01234567890123456789012345678901-test-secret"
 	svc := NewAuthService(repository.NewStore(pool), secret)
