@@ -1,7 +1,7 @@
 # Project Progress
 
 ## Current Phase
-Foundation, Menu, and Inventory database foundation.
+Core database schema implemented for Foundation, Menu, and Inventory.
 
 ## Last Updated
 2026-08-11
@@ -13,36 +13,43 @@ Foundation, Menu, and Inventory database foundation.
 
 ## Completed
 - Business requirement V1 discussed and approved.
-- Menu template and scheduled-menu snapshot model agreed.
-- Procurement stock check and H-1 re-check separated conceptually.
-- Gross requirement, usable existing stock, and net procurement separated for audit.
-- Over-received vendor goods are accepted and paid based on actual received quantity.
-- Direct purchase types agreed: `SHORTAGE` and `ADDITIONAL_REQUIREMENT`.
-- Material usage and stock adjustment require Chef + Akuntan approval.
-- Negative stock is rejected.
-- Stock movement ledger is the inventory audit source of truth.
-- Stock reservation concept agreed to prevent existing stock from being allocated twice.
-- Repository documentation structure established on `main`:
-  - `docs/progress.md`
-  - `docs/requirements.md`
-  - `docs/architecture.md`
-  - `docs/database.md`
-  - `docs/api.md`
-  - `docs/decisions.md`
+- Repository documentation structure established on `main`.
+- Starter foundation migration replaced with V1 foundation schema.
+- `roles`, `users`, `units`, and `materials` implemented.
+- Role seeds implemented: Chef, Ahli Gizi, Pengawas Bahan Baku, Akuntan, Kepala SPPG.
+- Unit seeds implemented: KG, PCS, LT, IKAT, RENCENG, BOTOL.
+- Menu template schema implemented.
+- Scheduled-menu snapshot schema implemented.
+- Two-week period constraint implemented at database level.
+- Inventory current-stock snapshot implemented through `material_stocks`.
+- Inventory audit ledger implemented through `stock_movements`.
+- Stock reservation schema and lifecycle checks implemented.
+- Negative material stock is blocked by database constraint.
+- Stock movement quantity must be positive.
+- Stock reservation quantity must be positive.
+- `docs/database.md` synchronized with actual migrations.
+
+## Implemented Migrations
+- `migrations/000001_create_foundation.sql`
+- `migrations/000002_create_menu.sql`
+- `migrations/000003_create_inventory.sql`
+
+## Important Migration Note
+The original starter `000001_create_foundation.sql` was rewritten because the project is still in the initial build phase. A local development database that already ran the old starter migration must be recreated/reset before applying the new schema.
 
 ## In Progress
-- Replace starter foundation schema with approved V1 master data.
-- Add menu and scheduled-menu schema.
-- Add inventory stock, movement, and reservation schema.
+- Prepare sqlc queries for foundation/material/menu/inventory reads and writes.
+- Prepare procurement migration.
 
 ## Next
-1. Finalize foundation migration.
-2. Add menu migration.
-3. Add inventory migration.
-4. Add sqlc queries for master/material and menu reads/writes.
-5. Run `sqlc generate` locally.
-6. Implement material and menu services/endpoints.
-7. Continue with procurement schema and workflow.
+1. Add sqlc queries for roles, units, materials, periods, menu templates, scheduled menus, and stock reads.
+2. Add `000004_create_procurement.sql`.
+3. Add the deferred FK from `stock_reservations.procurement_request_item_id` to `procurement_request_items.id`.
+4. Run Goose migrations against a clean local database.
+5. Run `sqlc generate`.
+6. Run `go test ./...` / build validation.
+7. Implement material and menu services/endpoints.
+8. Continue receiving/direct-purchase workflow after procurement is stable.
 
 ## Blockers / TBD
 - `KEPALA_SPPG` exists as a role, but operational permissions are still TBD.
@@ -59,15 +66,16 @@ Foundation, Menu, and Inventory database foundation.
 - No FIFO or stock-batch tracking in V1.
 - No negative stock.
 - Approval becomes invalid when approved data is revised; resubmission requires fresh approval.
+- `material_stocks` is a fast snapshot; `stock_movements` is the inventory audit source of truth.
+- Stock reservation is not a stock movement because it does not physically change quantity.
 - Routine development is performed directly on `main` while repository rules permit direct writes.
 
 ## Changed Files
-- `docs/progress.md`
-- `docs/requirements.md`
-- `docs/architecture.md`
+- `migrations/000001_create_foundation.sql`
+- `migrations/000002_create_menu.sql`
+- `migrations/000003_create_inventory.sql`
 - `docs/database.md`
-- `docs/api.md`
-- `docs/decisions.md`
+- `docs/progress.md`
 
 ## Notes for Next Agent
 Read these before changing behavior or schema:
