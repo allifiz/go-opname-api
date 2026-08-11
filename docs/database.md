@@ -3,22 +3,36 @@
 ## Migration Plan
 
 ```text
-000001_foundation
-000002_menu
-000003_inventory
-000004_procurement
+000001_create_foundation.sql   IMPLEMENTED
+000002_create_menu.sql         IMPLEMENTED
+000003_create_inventory.sql    IMPLEMENTED
+000004_procurement             NEXT
 000005_receiving
 000006_direct_purchase
 000007_material_usage
 000008_stock_opname
 ```
 
-## Foundation
+> The starter `000001` migration was intentionally rewritten because this project is still in the initial build phase. A local database that previously applied the old starter migration must be recreated/reset before applying the new schema.
+
+## General Conventions
+
+- Primary keys use `UUID DEFAULT gen_random_uuid()`.
+- Quantity fields use `NUMERIC(18,4)`.
+- Money fields use `NUMERIC(18,2)`.
+- Operational timestamps use `TIMESTAMPTZ`.
+- Production/menu calendar dates use `DATE`.
+- Foreign keys default to `RESTRICT` for transactional/master data that must not disappear from history.
+- User audit references may use `ON DELETE SET NULL` so historical business records survive user removal/deactivation.
+- Negative stock is forbidden.
+
+## 000001 Foundation
 
 ### roles
 - `id UUID PK`
-- `code VARCHAR UNIQUE NOT NULL`
-- `name VARCHAR NOT NULL`
+- `code VARCHAR(50) UNIQUE NOT NULL`
+- `name VARCHAR(100) NOT NULL`
+- timestamps
 
 Seed codes:
 - `CHEF`
@@ -30,16 +44,17 @@ Seed codes:
 ### users
 - `id UUID PK`
 - `role_id UUID FK roles`
-- `name`
-- `email UNIQUE`
-- `password_hash`
-- `is_active`
+- `name VARCHAR(150)`
+- `email VARCHAR(150) UNIQUE`
+- `password_hash TEXT`
+- `is_active BOOLEAN`
 - timestamps
 
 ### units
 - `id UUID PK`
-- `code VARCHAR UNIQUE NOT NULL`
-- `name VARCHAR NOT NULL`
+- `code VARCHAR(30) UNIQUE NOT NULL`
+- `name VARCHAR(100) NOT NULL`
+- timestamps
 
 Seed codes:
 - `KG`
@@ -51,119 +66,129 @@ Seed codes:
 
 ### materials
 - `id UUID PK`
-- `name VARCHAR UNIQUE NOT NULL`
+- `name VARCHAR(150) UNIQUE NOT NULL`
 - `unit_id UUID FK units`
 - `is_active BOOLEAN`
-- audit timestamps
-
-## Menu
-
-### periods
-- `id`
-- `name`
-- `start_date DATE`
-- `end_date DATE`
-- `created_by FK users`
+- `created_by UUID nullable FK users`
+- `updated_by UUID nullable FK users`
 - timestamps
 
-Business rule: one period lasts two weeks.
+Indexes exist for `unit_id` and `is_active`.
+
+## 000002 Menu
+
+### periods
+- `id UUID PK`
+- `name VARCHAR(150)`
+- `start_date DATE`
+- `end_date DATE`
+- `created_by UUID nullable FK users`
+- timestamps
+
+Database constraints:
+- `end_date >= start_date`
+- `end_date = start_date + 13`
+
+This enforces one inclusive 14-day period.
 
 ### menu_templates
-- `id`
-- `name`
-- `description`
-- `created_by`
-- `is_active`
+- `id UUID PK`
+- `name VARCHAR(150)`
+- `description TEXT nullable`
+- `is_active BOOLEAN`
+- `created_by`, `updated_by` nullable FK users
 - timestamps
 
 ### menu_template_components
-- `id`
-- `menu_template_id`
-- `name`
-- `sort_order`
+- `id UUID PK`
+- `menu_template_id UUID FK menu_templates ON DELETE CASCADE`
+- `name VARCHAR(150)`
+- `sort_order INTEGER >= 0`
 - timestamps
 
 ### menu_template_component_materials
-- `id`
-- `menu_template_component_id`
-- `material_id`
-- `qty_per_portion NUMERIC(18,4)`
-- `unit_id`
+- `id UUID PK`
+- `menu_template_component_id UUID FK menu_template_components ON DELETE CASCADE`
+- `material_id UUID FK materials`
+- `qty_per_portion NUMERIC(18,4) > 0`
+- `unit_id UUID FK units`
 - timestamps
+
+A material is unique inside one template component.
 
 ### scheduled_menus
-- `id`
-- `period_id`
-- `menu_template_id` nullable source reference
+- `id UUID PK`
+- `period_id UUID FK periods`
+- `menu_template_id UUID nullable source reference`
 - `menu_date DATE`
-- `planned_portions INTEGER`
-- `created_by`
+- `planned_portions INTEGER > 0`
+- `created_by`, `updated_by` nullable FK users
 - timestamps
+
+Constraint: one scheduled menu per period/date in V1.
 
 ### scheduled_menu_components
-- `id`
-- `scheduled_menu_id`
-- `source_template_component_id` nullable
-- `name`
-- `sort_order`
-- timestamps
+- Snapshot rows belonging to `scheduled_menus`.
+- `source_template_component_id` is nullable and only preserves origin/audit linkage.
+- Editing scheduled components does not mutate the source template.
 
 ### scheduled_menu_component_materials
-- `id`
-- `scheduled_menu_component_id`
-- `source_template_material_id` nullable
-- `material_id`
-- `qty_per_portion NUMERIC(18,4)`
-- `unit_id`
-- timestamps
+- Snapshot material rows belonging to a scheduled component.
+- `source_template_material_id` is nullable and only preserves origin/audit linkage.
+- `qty_per_portion NUMERIC(18,4) > 0`.
+- A material is unique inside one scheduled component.
 
-## Inventory
+## 000003 Inventory
 
 ### material_stocks
 - `material_id UUID PK FK materials`
 - `qty NUMERIC(18,4) NOT NULL DEFAULT 0`
 - `unit_id UUID FK units`
-- `updated_at`
+- `updated_at TIMESTAMPTZ`
 
-Constraint: quantity cannot be negative.
+Constraint: `qty >= 0`.
+
+`material_stocks` is the fast current-stock snapshot. The audit source of truth remains `stock_movements`.
 
 ### stock_movements
-- `id`
-- `material_id`
-- `movement_type`
-- `reference_type`
+- `id UUID PK`
+- `material_id UUID FK materials`
+- `movement_type stock_movement_type`
+- `reference_type stock_reference_type`
 - `reference_id UUID`
-- `qty NUMERIC(18,4)`
-- `unit_id`
+- `qty NUMERIC(18,4) > 0`
+- `unit_id UUID FK units`
 - `movement_date TIMESTAMPTZ`
-- `created_by`
-- `created_at`
+- `created_by UUID nullable FK users`
+- `created_at TIMESTAMPTZ`
 
-Movement types:
+Movement enum:
 - `IN`
 - `OUT`
 - `ADJUSTMENT_IN`
 - `ADJUSTMENT_OUT`
 
-Reference types:
+Reference enum:
 - `PO_RECEIPT`
 - `SHORTAGE_PURCHASE`
 - `ADDITIONAL_REQUIREMENT`
 - `MATERIAL_USAGE`
 - `STOCK_ADJUSTMENT`
 
+Indexes support material history and reference lookup.
+
 ### stock_reservations
-- `id`
-- `scheduled_menu_id`
-- `procurement_request_item_id` nullable until procurement schema exists
-- `material_id`
-- `qty NUMERIC(18,4)`
-- `unit_id`
-- `status`
+- `id UUID PK`
+- `scheduled_menu_id UUID FK scheduled_menus`
+- `procurement_request_item_id UUID nullable`
+- `material_id UUID FK materials`
+- `qty NUMERIC(18,4) > 0`
+- `unit_id UUID FK units`
+- `status stock_reservation_status`
 - `reserved_at`
-- `released_at` nullable
-- `consumed_at` nullable
-- `created_by`
+- `released_at nullable`
+- `consumed_at nullable`
+- `created_by UUID nullable FK users`
 - timestamps
 
 Statuses:
@@ -171,64 +196,42 @@ Statuses:
 - `CONSUMED`
 - `RELEASED`
 
-Reservation does not create a stock movement.
+Lifecycle constraint:
+- `ACTIVE`: neither released nor consumed timestamp exists.
+- `RELEASED`: `released_at` exists and `consumed_at` is null.
+- `CONSUMED`: `consumed_at` exists and `released_at` is null.
 
-## Procurement
+Reservation does not create a stock movement because physical stock has not changed.
+
+`procurement_request_item_id` intentionally has no FK in migration `000003`; migration `000004_procurement` must add the FK after `procurement_request_items` exists.
+
+## Planned 000004 Procurement
 
 ### procurement_requests
-- `id`
-- `scheduled_menu_id`
-- `status`
-- `checked_by`
-- `checked_at`
-- `submitted_at`
-- `verified_by`
-- `verified_at`
-- timestamps
-
-Statuses:
+Planned statuses:
 - `DRAFT`
 - `WAITING_VERIFICATION`
 - `VERIFIED`
 - `REJECTED`
 
 ### procurement_request_items
-- `id`
-- `procurement_request_id`
-- `material_id`
-- `gross_requirement_qty NUMERIC(18,4)`
-- `existing_stock_qty NUMERIC(18,4)`
-- `reserved_stock_qty NUMERIC(18,4)`
-- `net_procurement_qty NUMERIC(18,4)`
-- `unit_id`
-- timestamps
+Must preserve separately:
+- `gross_requirement_qty`
+- `existing_stock_qty`
+- `reserved_stock_qty`
+- `net_procurement_qty`
 
-### purchase_orders
-- `id`
-- `procurement_request_id`
-- `scheduled_menu_id`
-- `po_number`
-- `delivery_date DATE`
-- `status`
-- `created_by`
-- timestamps
+Formula:
 
-### purchase_order_items
-- `id`
-- `purchase_order_id`
-- `procurement_request_item_id`
-- `material_id`
-- `ordered_qty NUMERIC(18,4)`
-- `unit_id`
-- `agreed_unit_price NUMERIC(18,2)`
-- `supplier_name`
-- `status`
-- `cancelled_at`
-- `cancelled_by`
-- `cancel_reason`
-- timestamps
+```text
+available_stock = current_stock - active_reserved_stock
+net_procurement = max(gross_requirement - usable_available_stock, 0)
+```
 
-Item statuses:
+Procurement reservation must lock relevant inventory state so the same existing stock cannot be allocated to multiple future menu requirements.
+
+### purchase_orders / purchase_order_items
+Planned item statuses:
 - `WAITING`
 - `CANCELLED`
 - `NOT_RECEIVED`
@@ -237,99 +240,27 @@ Item statuses:
 - `OVER_RECEIVED`
 - `FULFILLED`
 
-## Receiving
+Vendor is not master data; supplier/source information is stored on the transaction/item.
 
-### receipts
-- `id`
-- `purchase_order_id`
-- `received_at`
-- `received_by`
-- `note`
-- timestamps
+## Planned Receiving
 
-### receipt_items
-- `id`
-- `receipt_id`
-- `purchase_order_item_id`
-- `material_id`
-- `ordered_qty`
-- `received_qty`
-- `excess_qty`
-- `unit_id`
-- `agreed_unit_price`
-- `actual_amount`
-- timestamps
-
-Rules:
+Receipt rules:
 - `excess_qty = max(received_qty - ordered_qty, 0)`
 - `actual_amount = received_qty * agreed_unit_price`
+- over-delivery is accepted in full and all accepted quantity enters stock.
+- invoice/supporting documents are uploaded for Akuntan visibility; there is no payment workflow in the application.
 
-### receipt_documents
-- `id`
-- `receipt_id`
-- `document_type`
-- `file_url`
-- `file_name`
-- `uploaded_by`
-- `created_at`
+## Planned Direct Purchase
 
-## Direct Purchase
-
-### additional_requirements
-- `id`
-- `scheduled_menu_id`
-- `previous_portions`
-- `new_portions`
-- `created_by`
-- `created_at`
-
-### additional_requirement_items
-- `id`
-- `additional_requirement_id`
-- `material_id`
-- `additional_qty`
-- `unit_id`
-- `created_at`
-
-### direct_purchases
-- `id`
-- `scheduled_menu_id`
-- `purchase_type`
-- `source_name`
-- `purchase_date`
-- `purchased_by`
-- `note`
-- timestamps
-
-Purchase types:
+Types:
 - `SHORTAGE`
 - `ADDITIONAL_REQUIREMENT`
 
-### direct_purchase_items
-- `id`
-- `direct_purchase_id`
-- `purchase_order_item_id` nullable
-- `additional_requirement_item_id` nullable
-- `material_id`
-- `qty`
-- `unit_id`
-- `unit_price`
-- `total_amount`
-- timestamps
+Rules:
+- `SHORTAGE` cannot exceed remaining shortage.
+- Additional portions after PO create `ADDITIONAL_REQUIREMENT`, not a second PO.
 
-Constraint: `SHORTAGE` quantity cannot exceed the remaining shortage.
-
-## Material Usage
-
-### material_usages
-- `id`
-- `scheduled_menu_id`
-- `usage_date`
-- `submitted_by`
-- `status`
-- `version INTEGER DEFAULT 1`
-- `submitted_at`
-- timestamps
+## Planned Material Usage
 
 Statuses:
 - `DRAFT`
@@ -337,35 +268,9 @@ Statuses:
 - `APPROVED`
 - `NEEDS_REVISION`
 
-### material_usage_items
-- `id`
-- `material_usage_id`
-- `material_id`
-- `planned_qty`
-- `actual_qty`
-- `unit_id`
-- timestamps
+Chef and Akuntan approvals are both required before stock OUT. Versioned approvals become invalid when the underlying submitted data is revised.
 
-### material_usage_approvals
-- `id`
-- `material_usage_id`
-- `approver_role`
-- `approver_id`
-- `entity_version`
-- `status`
-- `note`
-- `approved_at`
-- timestamps
-
-## Stock Opname
-
-### stock_opnames
-- `id`
-- `scheduled_menu_id`
-- `opname_date`
-- `performed_by`
-- `status`
-- timestamps
+## Planned Stock Opname
 
 Statuses:
 - `DRAFT`
@@ -374,41 +279,10 @@ Statuses:
 - `WAITING_ADJUSTMENT_APPROVAL`
 - `COMPLETED`
 
-### stock_opname_items
-- `id`
-- `stock_opname_id`
-- `material_id`
-- `system_qty`
-- `physical_qty`
-- `difference_qty`
-- `unit_id`
-- timestamps
-
-Rule: `difference_qty = physical_qty - system_qty` and is system-calculated.
-
-### stock_adjustments
-- `id`
-- `stock_opname_item_id`
-- `material_id`
-- `adjustment_qty`
-- `reason`
-- `submitted_by`
-- `status`
-- `version INTEGER DEFAULT 1`
-- timestamps
-
-### stock_adjustment_approvals
-- `id`
-- `stock_adjustment_id`
-- `approver_role`
-- `approver_id`
-- `entity_version`
-- `status`
-- `note`
-- `approved_at`
-- timestamps
+`difference_qty = physical_qty - system_qty` is system-calculated. Differences do not alter stock automatically. Adjustment requires Chef + Akuntan approval.
 
 ## Important Transaction Rules
+
 - Procurement reservation must lock relevant stock/reservation state before allocating existing stock.
 - Receipt and stock IN must commit atomically.
 - Direct purchase and stock IN must commit atomically.
