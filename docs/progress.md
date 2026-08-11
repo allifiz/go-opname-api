@@ -1,7 +1,7 @@
 # Project Progress
 
 ## Current Phase
-Core inventory V1 is implemented and green through stock opname and dual-approved stock adjustment. Initial hardening through real PostgreSQL concurrency integration tests is also green.
+Core inventory V1 is implemented and green through stock opname and dual-approved stock adjustment. Concurrency hardening now covers receiving, usage approval, adjustment approval, stock-out competition, reservation allocation, and shortage direct purchase.
 
 ## Last Updated
 2026-08-12
@@ -19,7 +19,9 @@ Core inventory V1 is implemented and green through stock opname and dual-approve
 - Concurrent Chef + Accountant material-usage approvals are covered and apply stock OUT exactly once.
 - Concurrent Chef + Accountant stock-adjustment approvals are covered and apply adjustment movement exactly once.
 - Competing conditional stock OUT is covered: when stock only satisfies one request, exactly one decrement succeeds and stock never becomes negative.
-- GitHub Actions run #63 passed migration up, rollback/re-apply, `sqlc generate`, all integration/concurrency tests via `go test ./...`, build, and generated-code synchronization.
+- GitHub Actions run #63 passed migration up, rollback/re-apply, `sqlc generate`, all initial integration/concurrency tests via `go test ./...`, build, and generated-code synchronization.
+- Added concurrent procurement stock-check coverage across two scheduled menus competing for the same physical material stock. The test requires active reservations never to exceed actual stock and aggregate net procurement to absorb the unavailable allocation.
+- Added concurrent `SHORTAGE` direct-purchase coverage for two requests competing for the same remaining shortage. PO-item locking must allow only the quantity that fits the remaining shortage; the competing excess request must fail without adding stock or purchase quantity.
 
 ## Implemented Migrations
 - `000001_create_foundation.sql`
@@ -33,9 +35,11 @@ Core inventory V1 is implemented and green through stock opname and dual-approve
 - `000009_create_stock_opname.sql`
 
 ## Validation Status
-GREEN through GitHub Actions run #63.
+Previously GREEN through GitHub Actions run #63.
 
-Validated checks:
+Reservation + shortage race hardening batch is awaiting the latest GitHub Actions result.
+
+Canonical checks:
 - PostgreSQL 17 startup
 - Goose migration up
 - rollback-to-zero
@@ -46,7 +50,7 @@ Validated checks:
 - generated sqlc synchronization
 
 ## Next
-1. Add reservation-allocation and shortage-purchase race coverage.
+1. Get reservation/shortage concurrency hardening green and fix any race surfaced by CI.
 2. Implement authentication/JWT and RBAC so audit user IDs no longer come from request bodies.
 3. Add menu-template update flow without mutating historical scheduled-menu snapshots.
 4. Add OpenAPI/Swagger and consistent response/error contracts.
