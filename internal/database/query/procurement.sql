@@ -97,6 +97,11 @@ SELECT *
 FROM purchase_orders
 WHERE id = $1;
 
+-- name: GetPurchaseOrderByProcurementRequest :one
+SELECT *
+FROM purchase_orders
+WHERE procurement_request_id = $1;
+
 -- name: ListPurchaseOrdersByScheduledMenu :many
 SELECT *
 FROM purchase_orders
@@ -138,6 +143,22 @@ JOIN materials m ON m.id = poi.material_id
 JOIN units u ON u.id = poi.unit_id
 WHERE poi.purchase_order_id = $1
 ORDER BY m.name ASC;
+
+-- name: LockPurchaseOrderItemForCancellation :one
+SELECT
+    poi.id,
+    poi.purchase_order_id,
+    poi.procurement_request_item_id,
+    poi.material_id,
+    poi.ordered_qty,
+    poi.unit_id,
+    poi.status,
+    po.scheduled_menu_id,
+    po.delivery_date
+FROM purchase_order_items poi
+JOIN purchase_orders po ON po.id = poi.purchase_order_id
+WHERE poi.id = $1
+FOR UPDATE OF poi, po;
 
 -- name: CancelPurchaseOrderItem :one
 UPDATE purchase_order_items
