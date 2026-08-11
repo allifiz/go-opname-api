@@ -5,49 +5,109 @@ This file tracks the HTTP contract surface. It is intentionally concise; detaile
 ## Conventions
 - Base path: `/api/v1`.
 - JSON request/response.
-- Business validation failures should return explicit error codes/messages.
-- Role authorization must follow approved actor responsibilities.
+- Validation errors return `400` with `{ "error": "..." }`.
+- Missing rows return `404`.
+- Unexpected database/application failures return `500`.
+- Authentication/authorization is not implemented yet; audit user fields remain nullable until auth is added.
 - `GET /health` remains outside `/api/v1`.
 
 ## Existing
 
 ### Health
 - `GET /health`
-- Purpose: application health check.
 - Status: implemented.
 
 ## Phase 1: Master Data
 
 ### Units
 - `GET /api/v1/units`
-- Status: planned.
+- Status: implemented.
 
 ### Materials
 - `GET /api/v1/materials`
+- `GET /api/v1/materials/:id`
 - `POST /api/v1/materials`
 - `PUT /api/v1/materials/:id`
-- Status: planned.
+- Status: implemented.
+
+Create body:
+```json
+{
+  "name": "Dada Ayam",
+  "unit_id": "<uuid>"
+}
+```
+
+Update body:
+```json
+{
+  "name": "Dada Ayam",
+  "unit_id": "<uuid>",
+  "is_active": true
+}
+```
 
 ## Phase 2: Period and Menu
 
 ### Periods
 - `GET /api/v1/periods`
 - `POST /api/v1/periods`
-- Status: planned.
+- Status: implemented.
+
+Create body only accepts `start_date`; the service derives `end_date = start_date + 13 days` to preserve the approved 14-day period invariant.
+
+```json
+{
+  "name": "Periode Agustus 1",
+  "start_date": "2026-08-17"
+}
+```
 
 ### Menu Templates
 - `GET /api/v1/menu-templates`
 - `GET /api/v1/menu-templates/:id`
 - `POST /api/v1/menu-templates`
 - `PUT /api/v1/menu-templates/:id`
-- Status: planned.
+- Status: create/list/detail implemented; update is still planned.
+
+Create is transactional and accepts nested components/materials:
+```json
+{
+  "name": "Ayam Katsu",
+  "description": "Template menu",
+  "components": [
+    {
+      "name": "Lauk",
+      "sort_order": 1,
+      "materials": [
+        {
+          "material_id": "<uuid>",
+          "qty_per_portion": "0.0800",
+          "unit_id": "<uuid>"
+        }
+      ]
+    }
+  ]
+}
+```
+
+`qty_per_portion` is represented as a JSON string to avoid floating-point precision loss before PostgreSQL `NUMERIC(18,4)`.
 
 ### Scheduled Menus
 - `GET /api/v1/scheduled-menus/:id`
 - `POST /api/v1/scheduled-menus`
-- Status: planned.
+- Status: implemented.
 
-Creation must snapshot the selected menu template components/materials.
+Creation validates that `menu_date` is inside the selected period, then transactionally snapshots the selected template components and materials.
+
+```json
+{
+  "period_id": "<uuid>",
+  "menu_template_id": "<uuid>",
+  "menu_date": "2026-08-17",
+  "planned_portions": 500
+}
+```
 
 ## Phase 3: Procurement
 Planned capabilities:
@@ -98,4 +158,4 @@ The service layer should expose stable business error identifiers for at least:
 - `INVALID_STATUS_TRANSITION`
 - `STOCK_ALREADY_RESERVED`
 
-HTTP status mapping will be finalized during handler implementation; business-rule failures should not become generic `500` responses.
+Current core handlers use explicit validation messages. Stable procurement/stock error identifiers will be added with the procurement service.
