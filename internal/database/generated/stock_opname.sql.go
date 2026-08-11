@@ -299,6 +299,29 @@ func (q *Queries) GetStockOpnameByScheduledMenu(ctx context.Context, scheduledMe
 	return i, err
 }
 
+const getStockOpnameItemByID = `-- name: GetStockOpnameItemByID :one
+SELECT id, stock_opname_id, material_id, system_qty, physical_qty, difference_qty, unit_id, created_at, updated_at
+FROM stock_opname_items
+WHERE id = $1
+`
+
+func (q *Queries) GetStockOpnameItemByID(ctx context.Context, id pgtype.UUID) (StockOpnameItem, error) {
+	row := q.db.QueryRow(ctx, getStockOpnameItemByID, id)
+	var i StockOpnameItem
+	err := row.Scan(
+		&i.ID,
+		&i.StockOpnameID,
+		&i.MaterialID,
+		&i.SystemQty,
+		&i.PhysicalQty,
+		&i.DifferenceQty,
+		&i.UnitID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const listStockAdjustmentApprovals = `-- name: ListStockAdjustmentApprovals :many
 SELECT id, stock_adjustment_id, approver_role, approver_id, entity_version, status, note, decided_at, created_at
 FROM stock_adjustment_approvals
@@ -447,12 +470,14 @@ SELECT
     sa.id, sa.stock_opname_item_id, sa.material_id, sa.adjustment_qty, sa.reason, sa.submitted_by, sa.status, sa.version, sa.submitted_at, sa.created_at, sa.updated_at,
     soi.stock_opname_id,
     soi.unit_id,
+    soi.system_qty,
+    soi.physical_qty,
     so.scheduled_menu_id
 FROM stock_adjustments sa
 JOIN stock_opname_items soi ON soi.id = sa.stock_opname_item_id
 JOIN stock_opnames so ON so.id = soi.stock_opname_id
 WHERE sa.id = $1
-FOR UPDATE OF sa
+FOR UPDATE OF sa, soi
 `
 
 type LockStockAdjustmentRow struct {
@@ -469,6 +494,8 @@ type LockStockAdjustmentRow struct {
 	UpdatedAt         pgtype.Timestamptz    `json:"updated_at"`
 	StockOpnameID     pgtype.UUID           `json:"stock_opname_id"`
 	UnitID            pgtype.UUID           `json:"unit_id"`
+	SystemQty         pgtype.Numeric        `json:"system_qty"`
+	PhysicalQty       pgtype.Numeric        `json:"physical_qty"`
 	ScheduledMenuID   pgtype.UUID           `json:"scheduled_menu_id"`
 }
 
@@ -489,6 +516,8 @@ func (q *Queries) LockStockAdjustment(ctx context.Context, id pgtype.UUID) (Lock
 		&i.UpdatedAt,
 		&i.StockOpnameID,
 		&i.UnitID,
+		&i.SystemQty,
+		&i.PhysicalQty,
 		&i.ScheduledMenuID,
 	)
 	return i, err
@@ -646,6 +675,35 @@ func (q *Queries) UpdateStockAdjustmentForRevision(ctx context.Context, arg Upda
 		&i.Status,
 		&i.Version,
 		&i.SubmittedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateStockOpnameItemPhysicalQty = `-- name: UpdateStockOpnameItemPhysicalQty :one
+UPDATE stock_opname_items
+SET physical_qty = $2, updated_at = NOW()
+WHERE id = $1
+RETURNING id, stock_opname_id, material_id, system_qty, physical_qty, difference_qty, unit_id, created_at, updated_at
+`
+
+type UpdateStockOpnameItemPhysicalQtyParams struct {
+	ID          pgtype.UUID    `json:"id"`
+	PhysicalQty pgtype.Numeric `json:"physical_qty"`
+}
+
+func (q *Queries) UpdateStockOpnameItemPhysicalQty(ctx context.Context, arg UpdateStockOpnameItemPhysicalQtyParams) (StockOpnameItem, error) {
+	row := q.db.QueryRow(ctx, updateStockOpnameItemPhysicalQty, arg.ID, arg.PhysicalQty)
+	var i StockOpnameItem
+	err := row.Scan(
+		&i.ID,
+		&i.StockOpnameID,
+		&i.MaterialID,
+		&i.SystemQty,
+		&i.PhysicalQty,
+		&i.DifferenceQty,
+		&i.UnitID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
