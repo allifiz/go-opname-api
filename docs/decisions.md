@@ -130,7 +130,7 @@ A scheduled menu has one material-usage record. Revisions update that lifecycle,
 Usage `planned_qty` is calculated from the scheduled-menu snapshot using the latest effective portion count, including later `ADDITIONAL_REQUIREMENT` increases. The client only supplies actual usage quantity.
 
 ## D-043: Usage approval identity is role-validated server-side
-Until authentication exists, the client supplies `approver_id`; the server resolves the active user and only accepts users whose current role code is `CHEF` or `AKUNTAN`.
+Approval identity must resolve to an active user whose role is `CHEF` or `AKUNTAN`. D-053 supersedes the old temporary request-body actor source; authenticated JWT identity is now authoritative.
 
 ## D-044: Approval uniqueness is role + entity version
 A usage version may have at most one Chef decision and one Accountant decision. Approval rows are never deleted when a new version is created.
@@ -158,3 +158,15 @@ The second current-version approval applies `ADJUSTMENT_IN` for positive differe
 
 ## D-052: Stock opname completes after all adjustments
 A stock opname with differences becomes `COMPLETED` only after every generated adjustment is `APPROVED`. A matching opname has no adjustment records.
+
+## D-053: JWT identity is authoritative for HTTP audit actors
+All protected HTTP requests use a validated Bearer JWT. Operational actor fields that previously came from request bodies are ignored/overwritten by the authenticated user ID at the HTTP boundary. Clients cannot impersonate another actor by changing `verified_by`, `received_by`, `purchased_by`, `submitted_by`, `approver_id`, `performed_by`, or `cancelled_by` in JSON.
+
+## D-054: JWT uses HS256 with explicit secret requirements
+V1 uses HS256 implemented with Go standard-library HMAC/SHA-256. Tokens expire after 8 hours. `JWT_SECRET` is mandatory and must be at least 32 characters. Signature and expiry are validated before protected handlers execute.
+
+## D-055: RBAC is enforced before business handlers
+Role authorization is enforced at the HTTP route boundary. Ahli Gizi controls menu-planning writes; Pengawas controls warehouse/procurement operational writes; Akuntan controls procurement verification; Chef and Akuntan control dual-approval decisions. Authenticated reads remain broadly available until a narrower approved policy exists.
+
+## D-056: No public default credential is seeded
+Migrations do not create a reusable default user/password. Initial-user provisioning is a separate secure operational workflow to implement, avoiding a known credential embedded in repository history.
