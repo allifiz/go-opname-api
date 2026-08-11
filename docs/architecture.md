@@ -1,7 +1,7 @@
 # Architecture V1
 
 ## Stack
-- Go 1.25+
+- Go 1.25+ for the application
 - Fiber
 - PostgreSQL
 - pgx/v5
@@ -37,7 +37,7 @@ Avoid unnecessary architecture layers unless a real requirement appears. The obj
 internal/
 ├── config/
 ├── database/
-│   ├── generated/       # sqlc generated code
+│   ├── generated/       # sqlc generated code, committed by CI when changed
 │   ├── query/           # sqlc SQL queries
 │   └── postgres.go
 ├── domain/
@@ -59,22 +59,33 @@ internal/
 ```
 
 ## Continuous Validation
-GitHub Actions is the executable validation environment for repository changes that need external tooling or PostgreSQL.
+GitHub Actions is the canonical executable validation environment for repository changes that need external tooling or PostgreSQL.
 
-The CI workflow:
-1. Starts a PostgreSQL 17 service.
-2. Sets up Go from `go.mod`.
-3. Installs pinned Goose `v3.27.1`.
-4. Installs pinned sqlc `v1.31.1`.
-5. Validates migration files.
-6. Applies all migrations.
-7. Rolls all migrations back to version 0 and applies them again to verify down migrations.
-8. Runs `sqlc generate`.
-9. Runs `go test ./...`.
-10. Runs `go build ./...`.
-11. Commits regenerated `internal/database/generated` files back to `main` when sqlc output changed.
+The ChatGPT execution sandbox cannot be granted outbound internet/DNS access from the conversation. Repository access is handled through the GitHub connector, while compilation, migration execution, and code generation run inside GitHub-hosted runners.
 
-This CI workflow is intentionally used instead of depending on the ChatGPT execution sandbox having outbound network access. Repository work can still be performed through the GitHub connector, while compilation/migration checks execute inside GitHub-hosted runners.
+The CI workflow uses:
+- Ubuntu GitHub-hosted runner.
+- PostgreSQL 17 service.
+- Go `1.26.x` toolchain for CI tooling and build validation.
+- Goose `v3.27.1`.
+- sqlc `v1.31.1`.
+
+The application still declares Go `1.25.0` as its minimum version in `go.mod`. CI intentionally uses a newer compatible Go toolchain because current Goose/sqlc releases require newer Go patch/minor versions.
+
+CI performs:
+1. Checkout repository.
+2. Setup Go `1.26.x`.
+3. Download project dependencies.
+4. Install pinned Goose and sqlc versions.
+5. Apply all Goose migrations to a clean PostgreSQL database.
+6. Roll migrations back to version 0.
+7. Apply all migrations again.
+8. Run `sqlc generate`.
+9. Run `go test ./...`.
+10. Run `go build ./...`.
+11. Commit regenerated `internal/database/generated` files back to `main` when sqlc output changes.
+
+The first complete validation passed on 2026-08-11 after CI tooling compatibility was corrected.
 
 ## Key Domain Principles
 
