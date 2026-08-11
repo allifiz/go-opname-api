@@ -1,7 +1,7 @@
 # Project Progress
 
 ## Current Phase
-Core inventory V1 is implemented and green through stock opname and dual-approved stock adjustment. Hardening is now in progress through real PostgreSQL concurrency integration tests.
+Core inventory V1 is implemented and green through stock opname and dual-approved stock adjustment. Initial hardening through real PostgreSQL concurrency integration tests is also green.
 
 ## Last Updated
 2026-08-12
@@ -15,10 +15,11 @@ Core inventory V1 is implemented and green through stock opname and dual-approve
 - Foundation, menu, inventory, procurement, PO, H-1 cancellation, receiving, direct purchase, material usage, stock opname, and stock adjustment implemented.
 - Core stock-opname batch passed GitHub Actions run #62 including migrations, rollback/re-apply, `sqlc generate`, tests, build, and generated-code synchronization.
 - Added `internal/service/concurrency_integration_test.go` using the real PostgreSQL database provided by CI rather than mocks.
-- Added concurrent receiving coverage: two simultaneous receipts for the same PO item must serialize through row locking, produce cumulative stock once per receipt, and result in `OVER_RECEIVED` when cumulative quantity exceeds ordered quantity.
-- Added concurrent material-usage approval coverage: Chef and Accountant approving concurrently must apply inventory exactly once after both current-version approvals exist.
-- Added concurrent stock-adjustment approval coverage: Chef and Accountant approving concurrently must apply the adjustment movement exactly once and complete the opname.
-- Added competing conditional stock-OUT coverage: when stock is only sufficient for one of two simultaneous decrements, exactly one succeeds and stock never becomes negative.
+- Concurrent receiving for the same PO item is covered and serializes correctly, with cumulative stock/status applied once per receipt.
+- Concurrent Chef + Accountant material-usage approvals are covered and apply stock OUT exactly once.
+- Concurrent Chef + Accountant stock-adjustment approvals are covered and apply adjustment movement exactly once.
+- Competing conditional stock OUT is covered: when stock only satisfies one request, exactly one decrement succeeds and stock never becomes negative.
+- GitHub Actions run #63 passed migration up, rollback/re-apply, `sqlc generate`, all integration/concurrency tests via `go test ./...`, build, and generated-code synchronization.
 
 ## Implemented Migrations
 - `000001_create_foundation.sql`
@@ -32,11 +33,9 @@ Core inventory V1 is implemented and green through stock opname and dual-approve
 - `000009_create_stock_opname.sql`
 
 ## Validation Status
-Core V1: GREEN through GitHub Actions run #62.
+GREEN through GitHub Actions run #63.
 
-Concurrency hardening batch: GitHub Actions run #63 in progress.
-
-Canonical checks:
+Validated checks:
 - PostgreSQL 17 startup
 - Goose migration up
 - rollback-to-zero
@@ -47,14 +46,13 @@ Canonical checks:
 - generated sqlc synchronization
 
 ## Next
-1. Get concurrency hardening batch green and fix any race-test issue surfaced by CI.
-2. Add reservation-allocation and shortage-purchase race coverage.
-3. Implement authentication/JWT and RBAC so audit user IDs no longer come from request bodies.
-4. Add menu-template update flow without mutating historical scheduled-menu snapshots.
-5. Add OpenAPI/Swagger and consistent response/error contracts.
-6. Add pagination/filtering where list volume can grow.
-7. Implement actual object storage for receipt documents.
-8. Resolve `KEPALA_SPPG` operational permissions.
+1. Add reservation-allocation and shortage-purchase race coverage.
+2. Implement authentication/JWT and RBAC so audit user IDs no longer come from request bodies.
+3. Add menu-template update flow without mutating historical scheduled-menu snapshots.
+4. Add OpenAPI/Swagger and consistent response/error contracts.
+5. Add pagination/filtering where list volume can grow.
+6. Implement actual object storage for receipt documents.
+7. Resolve `KEPALA_SPPG` operational permissions.
 
 ## Blockers / TBD
 - `KEPALA_SPPG` operational permissions remain TBD.
