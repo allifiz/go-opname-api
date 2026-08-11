@@ -19,21 +19,14 @@ func main() {
 	defer stop()
 
 	cfg, err := config.Load()
-	if err != nil {
-		log.Fatal(err)
-	}
+	if err != nil { log.Fatal(err) }
 
 	db, err := config.OpenDatabase(ctx, cfg.DatabaseURL)
-	if err != nil {
-		log.Fatal(err)
-	}
+	if err != nil { log.Fatal(err) }
 	defer db.Close()
 
 	app := fiber.New(fiber.Config{AppName: "Stock Opname API"})
-
-	app.Get("/health", func(c *fiber.Ctx) error {
-		return c.Status(fiber.StatusOK).JSON(fiber.Map{"status": "ok"})
-	})
+	app.Get("/health", func(c *fiber.Ctx) error { return c.Status(fiber.StatusOK).JSON(fiber.Map{"status": "ok"}) })
 
 	store := repository.NewStore(db)
 
@@ -49,15 +42,14 @@ func main() {
 	directPurchaseService := service.NewDirectPurchaseService(store)
 	httpHandler.RegisterDirectPurchaseRoutes(app, httpHandler.NewDirectPurchaseHandler(directPurchaseService))
 
+	materialUsageService := service.NewMaterialUsageService(store)
+	httpHandler.RegisterMaterialUsageRoutes(app, httpHandler.NewMaterialUsageHandler(materialUsageService))
+
 	go func() {
 		<-ctx.Done()
-		if err := app.Shutdown(); err != nil {
-			log.Printf("shutdown server: %v", err)
-		}
+		if err := app.Shutdown(); err != nil { log.Printf("shutdown server: %v", err) }
 	}()
 
 	log.Printf("API listening on :%s", cfg.AppPort)
-	if err := app.Listen(":" + cfg.AppPort); err != nil {
-		log.Printf("server stopped: %v", err)
-	}
+	if err := app.Listen(":" + cfg.AppPort); err != nil { log.Printf("server stopped: %v", err) }
 }
