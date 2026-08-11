@@ -22,6 +22,11 @@ func RegisterProcurementRoutes(app *fiber.App, handler *ProcurementHandler) {
 	api.Post("/procurement-requests/:id/submit", handler.Submit)
 	api.Post("/procurement-requests/:id/verify", handler.Verify)
 	api.Post("/procurement-requests/:id/reject", handler.Reject)
+
+	api.Post("/procurement-requests/:id/purchase-order", handler.GeneratePurchaseOrder)
+	api.Get("/purchase-orders/:id", handler.GetPurchaseOrder)
+	api.Get("/scheduled-menus/:id/purchase-orders", handler.ListPurchaseOrdersByScheduledMenu)
+	api.Post("/purchase-order-items/:id/cancel-h1", handler.CancelPurchaseOrderItemH1)
 }
 
 func (h *ProcurementHandler) CreateStockCheck(c *fiber.Ctx) error {
@@ -70,6 +75,46 @@ func (h *ProcurementHandler) Verify(c *fiber.Ctx) error {
 
 func (h *ProcurementHandler) Reject(c *fiber.Ctx) error {
 	data, err := h.service.Reject(c.UserContext(), c.Params("id"))
+	if err != nil {
+		return respondError(c, err)
+	}
+	return c.JSON(fiber.Map{"data": data})
+}
+
+func (h *ProcurementHandler) GeneratePurchaseOrder(c *fiber.Ctx) error {
+	var input service.GeneratePurchaseOrderInput
+	if err := c.BodyParser(&input); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid json body"})
+	}
+	data, err := h.service.GeneratePurchaseOrder(c.UserContext(), c.Params("id"), input)
+	if err != nil {
+		return respondError(c, err)
+	}
+	return c.Status(fiber.StatusCreated).JSON(fiber.Map{"data": data})
+}
+
+func (h *ProcurementHandler) GetPurchaseOrder(c *fiber.Ctx) error {
+	data, err := h.service.GetPurchaseOrder(c.UserContext(), c.Params("id"))
+	if err != nil {
+		return respondError(c, err)
+	}
+	return c.JSON(fiber.Map{"data": data})
+}
+
+func (h *ProcurementHandler) ListPurchaseOrdersByScheduledMenu(c *fiber.Ctx) error {
+	data, err := h.service.ListPurchaseOrdersByScheduledMenu(c.UserContext(), c.Params("id"))
+	if err != nil {
+		return respondError(c, err)
+	}
+	return c.JSON(fiber.Map{"data": data})
+}
+
+func (h *ProcurementHandler) CancelPurchaseOrderItemH1(c *fiber.Ctx) error {
+	var input service.CancelPurchaseOrderItemInput
+	if err := c.BodyParser(&input); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid json body"})
+	}
+	data, err := h.service.CancelPurchaseOrderItemH1(c.UserContext(), c.Params("id"), input)
 	if err != nil {
 		return respondError(c, err)
 	}
