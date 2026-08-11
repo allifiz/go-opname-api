@@ -8,13 +8,11 @@
 000003_create_inventory.sql              IMPLEMENTED
 000004_create_procurement.sql            IMPLEMENTED
 000005_purchase_order_constraints.sql    IMPLEMENTED
-000006_receiving.sql                     NEXT
-000007_direct_purchase.sql
+000006_create_receiving.sql              IMPLEMENTED
+000007_direct_purchase.sql               NEXT
 000008_material_usage.sql
 000009_stock_opname.sql
 ```
-
-> The starter `000001` migration was intentionally rewritten because this project is still in the initial build phase. A local database that previously applied the old starter migration must be recreated/reset before applying the current schema.
 
 ## General Conventions
 - Primary keys: `UUID DEFAULT gen_random_uuid()`.
@@ -22,35 +20,12 @@
 - Money: `NUMERIC(18,2)`.
 - Operational timestamps: `TIMESTAMPTZ`.
 - Production/menu dates: `DATE`.
-- Transaction/master history defaults to restrictive foreign keys.
-- User audit references may use `ON DELETE SET NULL`.
 - Negative stock is forbidden.
 
-## Foundation
-`roles`, `users`, `units`, and `materials` are implemented. Approved role seeds are `CHEF`, `AHLI_GIZI`, `PENGAWAS_BAHAN_BAKU`, `AKUNTAN`, and `KEPALA_SPPG`. Approved unit seeds are `KG`, `PCS`, `LT`, `IKAT`, `RENCENG`, and `BOTOL`.
+## Foundation / Menu / Inventory / Procurement
+Foundation, reusable menu templates, scheduled-menu snapshots, stock ledger/reservations, procurement requests, PO generation, and H-1 cancellation are implemented.
 
-## Menu
-A period is exactly 14 inclusive days. Menu templates are reusable. Scheduled menus copy template components/materials into snapshot tables so historical production requirements do not depend on later template edits.
-
-Gross requirement is calculated from scheduled snapshots:
-
-```text
-gross_requirement(material) = SUM(qty_per_portion * planned_portions)
-```
-
-## Inventory
-
-### material_stocks
-Current read-optimized stock snapshot. `qty >= 0`.
-
-### stock_movements
-Audit ledger for physical stock changes. Reservations never create stock movements.
-
-### stock_reservations
-Statuses: `ACTIVE`, `CONSUMED`, `RELEASED`.
-
-Procurement allocation uses:
-
+Core procurement allocation remains:
 ```text
 active_reserved_stock = SUM(ACTIVE reservation qty)
 available_stock = MAX(current_stock - active_reserved_stock, 0)
@@ -58,80 +33,91 @@ allocation_qty = MIN(gross_requirement, available_stock)
 net_procurement = MAX(gross_requirement - available_stock, 0)
 ```
 
-The `material_stocks` row is locked `FOR UPDATE` before availability is calculated. This serializes allocations for the same material.
+PO item `ordered_qty` is copied from verified positive `net_procurement_qty`. H-1 cancellation reserves replacement stock before marking the PO item `CANCELLED`.
 
-For H-1 cancellation, the service also calculates currently-unreserved stock as:
+## 000006 Receiving
 
-```text
-unreserved_stock = MAX(current_stock - SUM(all ACTIVE reservations), 0)
-```
+### receipts
+Receipt header fields:
+- `purchase_order_id`
+- `received_at`
+- `received_by`
+- `note`
+- timestamps
 
-The material stock row stays locked while the additional reservation and PO-item cancellation are performed.
+A PO may have multiple receipts.
 
-## Procurement
-
-### procurement_requests
-Statuses: `DRAFT`, `WAITING_VERIFICATION`, `VERIFIED`, `REJECTED`.
-
-`scheduled_menu_id` is unique, so one scheduled menu has one procurement-request lifecycle.
-
-### procurement_request_items
-Persist separately:
-- `gross_requirement_qty`
-- `existing_stock_qty`
-- `reserved_stock_qty`
-- `net_procurement_qty`
-
-A material may appear once per procurement request.
-
-### purchase_orders
-Statuses: `DRAFT`, `VERIFIED`, `PARTIALLY_RECEIVED`, `COMPLETED`.
+### receipt_items
+Each row links one receipt event to one PO item.
 
 Important fields:
-- `procurement_request_id`
-- `scheduled_menu_id`
-- unique `po_number`
-- `delivery_date`
-- `created_by`
+- `receipt_id`
+- `purchase_order_item_id`
+- `material_id`
+- `received_qty NUMERIC(18,4)`
+- `unit_id`
+- `agreed_unit_price NUMERIC(18,2)`
+- generated `actual_amount NUMERIC(18,2)`
 
-`000005_purchase_order_constraints.sql` adds a unique constraint on `procurement_request_id`, enforcing one PO per procurement request in V1.
+Rules:
+- `received_qty >= 0`.
+- Zero is valid and records a vendor non-delivery event (`NOT_RECEIVED`).
+- Positive quantity enters stock.
+- Material/unit/price are copied from the PO item, not supplied by the client.
+- One PO item can appear only once inside the same receipt, but may appear again in later receipts.
+- `actual_amount = ROUND(received_qty * agreed_unit_price, 2)` is PostgreSQL-generated.
 
-Generated POs are created in `VERIFIED` status after the procurement request itself is `VERIFIED`.
+### receipt_documents
+Document types:
+- `INVOICE`
+- `NOTA`
+- `PHOTO`
+- `OTHER`
 
-### purchase_order_items
-Statuses:
-- `WAITING`
-- `CANCELLED`
-- `NOT_RECEIVED`
-- `PARTIAL_RECEIVED`
-- `RECEIVED`
-- `OVER_RECEIVED`
-- `FULFILLED`
+The database stores file metadata/path/URL, not file blobs.
 
-`ordered_qty` is not client-controlled. It is copied from the verified procurement item's positive `net_procurement_qty`.
-
-Supplier is intentionally stored per item, not as vendor master data. `agreed_unit_price` is fixed for the PO item.
-
-Cancellation lifecycle requires `cancelled_at`, `cancelled_by`, and `cancel_reason` whenever status is `CANCELLED`.
-
-## H-1 Cancellation Transaction
-The service executes the following atomically:
+## Cumulative Receiving Status
+PO item status is based on all vendor receipt rows for that PO item:
 
 ```text
-lock PO item + parent PO
-validate item status = WAITING
-validate business date < delivery_date
-lock material_stocks row
-calculate currently-unreserved stock
-require unreserved_stock >= ordered_qty
-create ACTIVE reservation for ordered_qty
-cancel PO item with reason EXISTING_STOCK_SUFFICIENT
+total_received_qty = SUM(receipt_items.received_qty)
+
+0                           -> NOT_RECEIVED
+0 < total < ordered_qty     -> PARTIAL_RECEIVED
+total = ordered_qty         -> RECEIVED
+total > ordered_qty         -> OVER_RECEIVED
+```
+
+Over-delivery is therefore cumulative, not calculated independently per partial receipt.
+
+PO header status is recalculated from item statuses:
+- all items still open/no receipt progress -> `VERIFIED`;
+- some receiving progress but at least one item remains open -> `PARTIALLY_RECEIVED`;
+- every item is terminal (`CANCELLED`, `RECEIVED`, `OVER_RECEIVED`, `FULFILLED`) -> `COMPLETED`.
+
+## Receiving Transaction
+Each receipt is atomic:
+
+```text
+create receipt header
+for each input PO item:
+    lock PO item FOR UPDATE
+    validate item belongs to target PO
+    create receipt item
+    if received_qty > 0:
+        ensure + lock material stock
+        increase material stock
+        create stock movement IN / PO_RECEIPT
+    sum cumulative received qty
+    update PO item status
+create receipt document metadata
+recalculate PO header status
 commit
 ```
 
-If any step fails, both reservation and cancellation roll back.
+The PO-item lock serializes concurrent receipt submissions for the same item, preventing cumulative-status races.
 
-The extra reservation is linked to the same `procurement_request_item_id`. Combined with the original procurement reservation, it protects the full scheduled-menu requirement after the purchased quantity is cancelled.
+A zero-quantity receipt does not create a stock movement because no physical inventory changed.
 
 ## sqlc Query Files
 Implemented:
@@ -139,37 +125,31 @@ Implemented:
 - `internal/database/query/menu.sql`
 - `internal/database/query/inventory.sql`
 - `internal/database/query/procurement.sql`
+- `internal/database/query/receiving.sql`
 
-The query layer covers menu gross aggregation, stock locking/availability, reservations, procurement lifecycle, PO generation/read operations, and PO-item locking for H-1 cancellation.
-
-`sqlc generate`, migrations, rollback, tests, and build are validated by GitHub Actions against PostgreSQL 17.
-
-## Planned Receiving
-Receiving now starts at `000006_receiving.sql` because migration `000005` is used for PO constraints.
-
-Required rules:
-- multiple receipts per PO item are supported;
-- cumulative vendor receipt quantity drives item status;
-- `initial_shortage_qty = MAX(ordered_qty - total_vendor_received_qty, 0)`;
-- over-delivery is based on cumulative received quantity;
-- all accepted actual quantity enters stock;
-- actual amount uses fixed `agreed_unit_price`;
-- receipt + stock IN must commit atomically;
-- invoice/supporting document metadata is stored for Accountant visibility;
-- no payment workflow is implemented.
+Receiving adds queries for receipt CRUD/read, cumulative receipt sums, PO-item locking/status updates, PO header status calculation, document metadata, and atomic stock increase.
 
 ## Planned Direct Purchase
-Types: `SHORTAGE`, `ADDITIONAL_REQUIREMENT`.
+Next migration: `000007_direct_purchase.sql`.
 
-`SHORTAGE` cannot exceed remaining shortage. Additional production need after PO uses `ADDITIONAL_REQUIREMENT`, not another PO.
+Types:
+- `SHORTAGE`
+- `ADDITIONAL_REQUIREMENT`
+
+Rules:
+- `initial_shortage_qty = MAX(ordered_qty - total_vendor_received_qty, 0)`.
+- `remaining_shortage_qty = MAX(initial_shortage_qty - total_shortage_purchase_qty, 0)`.
+- `SHORTAGE` purchase may not exceed remaining shortage.
+- Increased production after PO uses `ADDITIONAL_REQUIREMENT`, not a second PO.
+- Direct purchase + stock IN must be atomic.
 
 ## Planned Usage / Opname
-Material usage and stock adjustment both require Chef + Accountant approval. Actual stock changes happen only after valid approvals for the current entity version. Negative stock remains forbidden.
+Material usage and stock adjustment both require Chef + Accountant approval. Stock changes occur only after valid approvals for the current entity version.
 
 ## Important Transaction Rules
 - Procurement stock check + reservation: atomic with stock row lock.
 - H-1 replacement reservation + PO-item cancellation: atomic.
-- Receipt + stock IN: atomic.
+- Receipt + stock IN: atomic with PO-item lock and cumulative status update.
 - Direct purchase + stock IN: atomic.
 - Approved usage + stock OUT: atomic.
 - Approved adjustment + stock movement: atomic.
