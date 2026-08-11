@@ -8,6 +8,7 @@
 - Goose migrations
 - sqlc
 - Air for local hot reload
+- GitHub Actions for executable validation
 
 ## Application Flow
 Use a pragmatic layered structure:
@@ -29,6 +30,10 @@ Avoid unnecessary architecture layers unless a real requirement appears. The obj
 ## Repository Layout
 
 ```text
+.github/
+└── workflows/
+    └── ci.yml
+
 internal/
 ├── config/
 ├── database/
@@ -52,6 +57,24 @@ internal/
 │   └── middleware/
 └── router/
 ```
+
+## Continuous Validation
+GitHub Actions is the executable validation environment for repository changes that need external tooling or PostgreSQL.
+
+The CI workflow:
+1. Starts a PostgreSQL 17 service.
+2. Sets up Go from `go.mod`.
+3. Installs pinned Goose `v3.27.1`.
+4. Installs pinned sqlc `v1.31.1`.
+5. Validates migration files.
+6. Applies all migrations.
+7. Rolls all migrations back to version 0 and applies them again to verify down migrations.
+8. Runs `sqlc generate`.
+9. Runs `go test ./...`.
+10. Runs `go build ./...`.
+11. Commits regenerated `internal/database/generated` files back to `main` when sqlc output changed.
+
+This CI workflow is intentionally used instead of depending on the ChatGPT execution sandbox having outbound network access. Repository work can still be performed through the GitHub connector, while compilation/migration checks execute inside GitHub-hosted runners.
 
 ## Key Domain Principles
 
