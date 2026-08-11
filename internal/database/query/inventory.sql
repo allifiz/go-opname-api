@@ -38,6 +38,15 @@ SET
     updated_at = NOW()
 RETURNING *;
 
+-- name: IncreaseMaterialStock :one
+UPDATE material_stocks
+SET
+    qty = qty + sqlc.arg(add_qty)::NUMERIC,
+    updated_at = NOW()
+WHERE material_id = sqlc.arg(material_id)
+  AND unit_id = sqlc.arg(unit_id)
+RETURNING *;
+
 -- name: SumActiveReservedStockByMaterial :one
 SELECT COALESCE(SUM(qty), 0)::NUMERIC(18,4) AS reserved_qty
 FROM stock_reservations
