@@ -78,6 +78,34 @@ func (s *Store) ListScheduledMenuComponentMaterials(ctx context.Context, id pgty
 	return s.queries.ListScheduledMenuComponentMaterials(ctx, id)
 }
 
+func (s *Store) GetProcurementRequest(ctx context.Context, id pgtype.UUID) (db.ProcurementRequest, error) {
+	return s.queries.GetProcurementRequestByID(ctx, id)
+}
+
+func (s *Store) ListProcurementRequestsByScheduledMenu(ctx context.Context, id pgtype.UUID) ([]db.ProcurementRequest, error) {
+	return s.queries.ListProcurementRequestsByScheduledMenu(ctx, id)
+}
+
+func (s *Store) ListProcurementRequestItems(ctx context.Context, id pgtype.UUID) ([]db.ListProcurementRequestItemsRow, error) {
+	return s.queries.ListProcurementRequestItems(ctx, id)
+}
+
+func (s *Store) ListStockReservationsByProcurementRequest(ctx context.Context, id pgtype.UUID) ([]db.StockReservation, error) {
+	return s.queries.ListStockReservationsByProcurementRequest(ctx, id)
+}
+
+func (s *Store) SubmitProcurementRequest(ctx context.Context, id pgtype.UUID) (db.ProcurementRequest, error) {
+	return s.queries.SubmitProcurementRequest(ctx, id)
+}
+
+func (s *Store) VerifyProcurementRequest(ctx context.Context, arg db.VerifyProcurementRequestParams) (db.ProcurementRequest, error) {
+	return s.queries.VerifyProcurementRequest(ctx, arg)
+}
+
+func (s *Store) RejectProcurementRequest(ctx context.Context, id pgtype.UUID) (db.ProcurementRequest, error) {
+	return s.queries.RejectProcurementRequest(ctx, id)
+}
+
 func (s *Store) WithTx(ctx context.Context, fn func(*db.Queries) error) error {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
