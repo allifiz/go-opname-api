@@ -1,7 +1,7 @@
 # Project Progress
 
 ## Current Phase
-Core inventory V1 is implemented and green through stock opname and dual-approved stock adjustment. Concurrency hardening is green for receiving, usage approval, adjustment approval, stock-out competition, reservation allocation, and shortage direct purchase. Next focus is authentication/JWT + RBAC.
+Core inventory V1 and concurrency hardening are green. Authentication/JWT + RBAC is implemented and undergoing final GitHub Actions validation.
 
 ## Last Updated
 2026-08-12
@@ -13,16 +13,22 @@ Core inventory V1 is implemented and green through stock opname and dual-approve
 
 ## Completed
 - Foundation, menu, inventory, procurement, PO, H-1 cancellation, receiving, direct purchase, material usage, stock opname, and stock adjustment implemented.
-- Core stock-opname batch passed GitHub Actions run #62 including migrations, rollback/re-apply, `sqlc generate`, tests, build, and generated-code synchronization.
-- Added `internal/service/concurrency_integration_test.go` using the real PostgreSQL database provided by CI rather than mocks.
-- Concurrent receiving for the same PO item is covered and serializes correctly, with cumulative stock/status applied once per receipt.
-- Concurrent Chef + Accountant material-usage approvals are covered and apply stock OUT exactly once.
-- Concurrent Chef + Accountant stock-adjustment approvals are covered and apply adjustment movement exactly once.
-- Competing conditional stock OUT is covered: when stock only satisfies one request, exactly one decrement succeeds and stock never becomes negative.
-- GitHub Actions run #63 passed migration up, rollback/re-apply, `sqlc generate`, all initial integration/concurrency tests via `go test ./...`, build, and generated-code synchronization.
-- Concurrent procurement stock-check coverage across two scheduled menus competing for the same physical material stock is implemented. Active reservations cannot exceed real stock; unavailable allocation becomes net procurement.
-- Concurrent `SHORTAGE` direct-purchase coverage is implemented. Two requests competing for the same remaining shortage serialize on the PO item; only the quantity that fits may commit, and the excess request fails without adding stock or purchase quantity.
-- GitHub Actions run #64 passed migration up, rollback/re-apply, `sqlc generate`, all PostgreSQL integration/concurrency tests, `go build ./...`, and generated-code synchronization.
+- Real PostgreSQL concurrency coverage protects receiving, usage approval, adjustment approval, conditional stock OUT, reservation allocation, and shortage purchases.
+- Concurrency hardening is green through GitHub Actions run #64.
+- JWT authentication implemented using HS256 with the Go standard library.
+- Password verification uses bcrypt against `users.password_hash`.
+- `POST /api/v1/auth/login` is public and issues an 8-hour Bearer token containing user ID, role, email, and expiry.
+- `GET /api/v1/auth/me` and all non-health business endpoints require a valid Bearer token.
+- `JWT_SECRET` is mandatory and must contain at least 32 characters.
+- HTTP RBAC guards are implemented:
+  - `AHLI_GIZI`: period/menu-template/scheduled-menu writes.
+  - `AHLI_GIZI` or `PENGAWAS_BAHAN_BAKU`: material writes.
+  - `PENGAWAS_BAHAN_BAKU`: procurement stock check/submission, PO generation/H-1 cancellation, receiving, direct purchase, material usage entry/revision/submission, stock opname/adjustment revision/submission.
+  - `AKUNTAN`: procurement verification/rejection.
+  - `CHEF` or `AKUNTAN`: material-usage and stock-adjustment decisions.
+- Operational audit actors that previously came from request bodies are overwritten at the HTTP boundary from JWT identity (`verified_by`, `cancelled_by`, `received_by`, `purchased_by`, usage `submitted_by`/`approver_id`, opname `performed_by`, adjustment `submitted_by`/`approver_id`).
+- Authentication integration tests cover bcrypt login against PostgreSQL, valid token claims, tampered token rejection, expired token rejection, missing-token `401`, wrong-role `403`, and allowed-role `200`.
+- Auth implementation through commit `b724df8` passed GitHub Actions run #78; the additional HTTP RBAC test is awaiting the latest run.
 
 ## Implemented Migrations
 - `000001_create_foundation.sql`
@@ -35,22 +41,25 @@ Core inventory V1 is implemented and green through stock opname and dual-approve
 - `000008_create_material_usage.sql`
 - `000009_create_stock_opname.sql`
 
-## Validation Status
-GREEN through GitHub Actions run #64.
+No new migration is required for JWT auth; the existing `users`, `roles`, and `password_hash` fields are used.
 
-Validated checks:
+## Validation Status
+Core/concurrency: GREEN through GitHub Actions run #64.
+Auth implementation: GREEN through run #78 before the final middleware-role test commit; latest auth test run pending.
+
+Canonical checks:
 - PostgreSQL 17 startup
 - Goose migration up
 - rollback-to-zero
 - migration re-apply
 - `sqlc generate`
-- real PostgreSQL integration/concurrency tests through `go test ./...`
+- real PostgreSQL integration/concurrency/auth tests through `go test ./...`
 - `go build ./...`
 - generated sqlc synchronization
 
 ## Next
-1. Implement authentication/JWT and RBAC so audit user IDs no longer come from request bodies.
-2. Add authentication/RBAC integration tests and role-denial coverage.
+1. Get final auth/RBAC middleware test run green.
+2. Add secure initial-user provisioning/admin workflow; do not seed a public default password in migrations.
 3. Add menu-template update flow without mutating historical scheduled-menu snapshots.
 4. Add OpenAPI/Swagger and consistent response/error contracts.
 5. Add pagination/filtering where list volume can grow.
@@ -59,13 +68,31 @@ Validated checks:
 
 ## Blockers / TBD
 - `KEPALA_SPPG` operational permissions remain TBD.
-- Authentication/authorization is not implemented yet.
+- Secure initial user provisioning is not yet implemented; no default credential is seeded intentionally.
 - Receipt document object storage provider is not implemented yet.
 - No application payment workflow is required.
 
 ## Changed Files (Latest Batch)
-- `internal/service/concurrency_integration_test.go`
+- `internal/config/config.go`
+- `internal/database/query/foundation.sql`
+- `internal/repository/store.go`
+- `internal/service/auth_service.go`
+- `internal/service/auth_integration_test.go`
+- `internal/handler/http/auth_handler.go`
+- `internal/handler/http/auth_handler_test.go`
+- `internal/handler/http/core_handler.go`
+- `internal/handler/http/procurement_handler.go`
+- `internal/handler/http/receiving_handler.go`
+- `internal/handler/http/direct_purchase_handler.go`
+- `internal/handler/http/material_usage_handler.go`
+- `internal/handler/http/stock_opname_handler.go`
+- `cmd/api/main.go`
+- `.env.example`
 - `docs/progress.md`
+- `docs/api.md`
+- `docs/architecture.md`
+- `docs/decisions.md`
+- `Readme.md`
 
 ## Notes for Next Agent
 Read before changing behavior/schema:
