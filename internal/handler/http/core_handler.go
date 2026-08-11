@@ -6,6 +6,7 @@ import (
 	"github.com/allifiz/go-opname-api/internal/service"
 	"github.com/gofiber/fiber/v2"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type CoreHandler struct {
@@ -41,10 +42,17 @@ func respondError(c *fiber.Ctx, err error) error {
 	status := fiber.StatusInternalServerError
 	message := "internal server error"
 
+	var pgErr *pgconn.PgError
 	switch {
 	case errors.Is(err, service.ErrInvalidInput):
 		status = fiber.StatusBadRequest
 		message = err.Error()
+	case errors.Is(err, service.ErrConflict), errors.Is(err, service.ErrInvalidTransition):
+		status = fiber.StatusConflict
+		message = err.Error()
+	case errors.As(err, &pgErr) && pgErr.Code == "23505":
+		status = fiber.StatusConflict
+		message = "resource already exists"
 	case errors.Is(err, pgx.ErrNoRows):
 		status = fiber.StatusNotFound
 		message = "resource not found"
