@@ -46,6 +46,9 @@ func main() {
 	receivingService := service.NewReceivingService(store)
 	httpHandler.RegisterReceivingRoutes(app, httpHandler.NewReceivingHandler(receivingService))
 
+	directPurchaseService := service.NewDirectPurchaseService(store)
+	httpHandler.RegisterDirectPurchaseRoutes(app, httpHandler.NewDirectPurchaseHandler(directPurchaseService))
+
 	go func() {
 		<-ctx.Done()
 		if err := app.Shutdown(); err != nil {
