@@ -14,10 +14,8 @@ type Store struct {
 	queries *db.Queries
 }
 
-func NewStore(pool *pgxpool.Pool) *Store {
-	return &Store{pool: pool, queries: db.New(pool)}
-}
-
+func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool, queries: db.New(pool)} }
+func (s *Store) GetUserByEmailWithRole(ctx context.Context, email string) (db.GetUserByEmailWithRoleRow, error) { return s.queries.GetUserByEmailWithRole(ctx, email) }
 func (s *Store) ListUnits(ctx context.Context) ([]db.ListUnitsRow, error) { return s.queries.ListUnits(ctx) }
 func (s *Store) ListMaterials(ctx context.Context) ([]db.ListMaterialsRow, error) { return s.queries.ListMaterials(ctx) }
 func (s *Store) GetMaterial(ctx context.Context, id pgtype.UUID) (db.GetMaterialByIDRow, error) { return s.queries.GetMaterialByID(ctx, id) }
