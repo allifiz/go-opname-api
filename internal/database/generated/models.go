@@ -11,6 +11,48 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type DirectPurchaseType string
+
+const (
+	DirectPurchaseTypeSHORTAGE              DirectPurchaseType = "SHORTAGE"
+	DirectPurchaseTypeADDITIONALREQUIREMENT DirectPurchaseType = "ADDITIONAL_REQUIREMENT"
+)
+
+func (e *DirectPurchaseType) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = DirectPurchaseType(s)
+	case string:
+		*e = DirectPurchaseType(s)
+	default:
+		return fmt.Errorf("unsupported scan type for DirectPurchaseType: %T", src)
+	}
+	return nil
+}
+
+type NullDirectPurchaseType struct {
+	DirectPurchaseType DirectPurchaseType `json:"direct_purchase_type"`
+	Valid              bool               `json:"valid"` // Valid is true if DirectPurchaseType is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullDirectPurchaseType) Scan(value interface{}) error {
+	if value == nil {
+		ns.DirectPurchaseType, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.DirectPurchaseType.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullDirectPurchaseType) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.DirectPurchaseType), nil
+}
+
 type ProcurementRequestStatus string
 
 const (
@@ -320,6 +362,49 @@ func (ns NullStockReservationStatus) Value() (driver.Value, error) {
 		return nil, nil
 	}
 	return string(ns.StockReservationStatus), nil
+}
+
+type AdditionalRequirement struct {
+	ID               pgtype.UUID        `json:"id"`
+	ScheduledMenuID  pgtype.UUID        `json:"scheduled_menu_id"`
+	PreviousPortions int32              `json:"previous_portions"`
+	NewPortions      int32              `json:"new_portions"`
+	CreatedBy        pgtype.UUID        `json:"created_by"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+}
+
+type AdditionalRequirementItem struct {
+	ID                      pgtype.UUID        `json:"id"`
+	AdditionalRequirementID pgtype.UUID        `json:"additional_requirement_id"`
+	MaterialID              pgtype.UUID        `json:"material_id"`
+	AdditionalQty           pgtype.Numeric     `json:"additional_qty"`
+	UnitID                  pgtype.UUID        `json:"unit_id"`
+	CreatedAt               pgtype.Timestamptz `json:"created_at"`
+}
+
+type DirectPurchase struct {
+	ID              pgtype.UUID        `json:"id"`
+	ScheduledMenuID pgtype.UUID        `json:"scheduled_menu_id"`
+	PurchaseType    DirectPurchaseType `json:"purchase_type"`
+	SourceName      string             `json:"source_name"`
+	PurchaseDate    pgtype.Timestamptz `json:"purchase_date"`
+	PurchasedBy     pgtype.UUID        `json:"purchased_by"`
+	Note            pgtype.Text        `json:"note"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+}
+
+type DirectPurchaseItem struct {
+	ID                          pgtype.UUID        `json:"id"`
+	DirectPurchaseID            pgtype.UUID        `json:"direct_purchase_id"`
+	PurchaseOrderItemID         pgtype.UUID        `json:"purchase_order_item_id"`
+	AdditionalRequirementItemID pgtype.UUID        `json:"additional_requirement_item_id"`
+	MaterialID                  pgtype.UUID        `json:"material_id"`
+	Qty                         pgtype.Numeric     `json:"qty"`
+	UnitID                      pgtype.UUID        `json:"unit_id"`
+	UnitPrice                   pgtype.Numeric     `json:"unit_price"`
+	TotalAmount                 pgtype.Numeric     `json:"total_amount"`
+	CreatedAt                   pgtype.Timestamptz `json:"created_at"`
 }
 
 type Material struct {

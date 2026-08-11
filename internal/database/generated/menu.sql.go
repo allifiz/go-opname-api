@@ -308,6 +308,61 @@ func (q *Queries) GetPeriodByID(ctx context.Context, id pgtype.UUID) (Period, er
 	return i, err
 }
 
+const getScheduledMenuAdditionalRequirements = `-- name: GetScheduledMenuAdditionalRequirements :many
+SELECT
+    smcm.material_id,
+    m.name AS material_name,
+    smcm.unit_id,
+    u.code AS unit_code,
+    SUM(smcm.qty_per_portion * $1::INTEGER)::NUMERIC(18,4) AS additional_qty
+FROM scheduled_menu_components smc
+JOIN scheduled_menu_component_materials smcm ON smcm.scheduled_menu_component_id = smc.id
+JOIN materials m ON m.id = smcm.material_id
+JOIN units u ON u.id = smcm.unit_id
+WHERE smc.scheduled_menu_id = $2
+GROUP BY smcm.material_id, m.name, smcm.unit_id, u.code
+ORDER BY m.name ASC
+`
+
+type GetScheduledMenuAdditionalRequirementsParams struct {
+	AdditionalPortions int32       `json:"additional_portions"`
+	ScheduledMenuID    pgtype.UUID `json:"scheduled_menu_id"`
+}
+
+type GetScheduledMenuAdditionalRequirementsRow struct {
+	MaterialID    pgtype.UUID    `json:"material_id"`
+	MaterialName  string         `json:"material_name"`
+	UnitID        pgtype.UUID    `json:"unit_id"`
+	UnitCode      string         `json:"unit_code"`
+	AdditionalQty pgtype.Numeric `json:"additional_qty"`
+}
+
+func (q *Queries) GetScheduledMenuAdditionalRequirements(ctx context.Context, arg GetScheduledMenuAdditionalRequirementsParams) ([]GetScheduledMenuAdditionalRequirementsRow, error) {
+	rows, err := q.db.Query(ctx, getScheduledMenuAdditionalRequirements, arg.AdditionalPortions, arg.ScheduledMenuID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetScheduledMenuAdditionalRequirementsRow
+	for rows.Next() {
+		var i GetScheduledMenuAdditionalRequirementsRow
+		if err := rows.Scan(
+			&i.MaterialID,
+			&i.MaterialName,
+			&i.UnitID,
+			&i.UnitCode,
+			&i.AdditionalQty,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getScheduledMenuByID = `-- name: GetScheduledMenuByID :one
 SELECT id, period_id, menu_template_id, menu_date, planned_portions, created_by, updated_by, created_at, updated_at
 FROM scheduled_menus
@@ -371,6 +426,56 @@ func (q *Queries) GetScheduledMenuGrossRequirements(ctx context.Context, id pgty
 			&i.UnitID,
 			&i.UnitCode,
 			&i.GrossRequirementQty,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getScheduledMenuPerPortionRequirements = `-- name: GetScheduledMenuPerPortionRequirements :many
+SELECT
+    smcm.material_id,
+    m.name AS material_name,
+    smcm.unit_id,
+    u.code AS unit_code,
+    SUM(smcm.qty_per_portion)::NUMERIC(18,4) AS qty_per_portion
+FROM scheduled_menu_components smc
+JOIN scheduled_menu_component_materials smcm ON smcm.scheduled_menu_component_id = smc.id
+JOIN materials m ON m.id = smcm.material_id
+JOIN units u ON u.id = smcm.unit_id
+WHERE smc.scheduled_menu_id = $1
+GROUP BY smcm.material_id, m.name, smcm.unit_id, u.code
+ORDER BY m.name ASC
+`
+
+type GetScheduledMenuPerPortionRequirementsRow struct {
+	MaterialID    pgtype.UUID    `json:"material_id"`
+	MaterialName  string         `json:"material_name"`
+	UnitID        pgtype.UUID    `json:"unit_id"`
+	UnitCode      string         `json:"unit_code"`
+	QtyPerPortion pgtype.Numeric `json:"qty_per_portion"`
+}
+
+func (q *Queries) GetScheduledMenuPerPortionRequirements(ctx context.Context, scheduledMenuID pgtype.UUID) ([]GetScheduledMenuPerPortionRequirementsRow, error) {
+	rows, err := q.db.Query(ctx, getScheduledMenuPerPortionRequirements, scheduledMenuID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetScheduledMenuPerPortionRequirementsRow
+	for rows.Next() {
+		var i GetScheduledMenuPerPortionRequirementsRow
+		if err := rows.Scan(
+			&i.MaterialID,
+			&i.MaterialName,
+			&i.UnitID,
+			&i.UnitCode,
+			&i.QtyPerPortion,
 		); err != nil {
 			return nil, err
 		}
