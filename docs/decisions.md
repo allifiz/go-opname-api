@@ -91,3 +91,12 @@ Use `handler -> service -> repository -> sqlc/pgx`. Do not add architectural lay
 
 ## D-026: One procurement request per scheduled menu
 A scheduled menu has one procurement request lifecycle. Accountant rejection revises/resubmits that same request instead of creating a second request. This prevents duplicate stock reservations and duplicate net-procurement snapshots for the same scheduled menu.
+
+## D-027: One PO per procurement request
+A verified procurement request creates at most one PO document in V1. PO item quantities are derived server-side from verified `net_procurement_qty`; clients only provide delivery date, supplier name, and fixed agreed unit price.
+
+## D-028: H-1 cancellation reserves replacement stock first
+An H-1 cancellation caused by sufficient existing stock must create an additional active reservation for the full cancelled PO quantity in the same transaction before changing the item to `CANCELLED`. If the reservation cannot be made, cancellation fails.
+
+## D-029: H-1 latest valid day
+For the H-1 cancellation flow, cancellation is valid only while the business date is strictly before `delivery_date`. Delivery day and later are rejected. Business-date evaluation currently uses `Asia/Jakarta`.
