@@ -10,8 +10,8 @@
 000005_purchase_order_constraints.sql    IMPLEMENTED
 000006_create_receiving.sql              IMPLEMENTED
 000007_create_direct_purchase.sql        IMPLEMENTED
-000008_material_usage.sql                NEXT
-000009_stock_opname.sql
+000008_create_material_usage.sql         IMPLEMENTED
+000009_stock_opname.sql                  NEXT
 ```
 
 ## General Conventions
@@ -21,11 +21,12 @@
 - Operational timestamps: `TIMESTAMPTZ`.
 - Production/menu dates: `DATE`.
 - Negative stock is forbidden.
+- Real inventory changes must be represented in `stock_movements`.
 
-## Foundation / Menu / Inventory / Procurement
-Foundation, reusable menu templates, scheduled-menu snapshots, stock ledger/reservations, procurement requests, PO generation, H-1 cancellation, and receiving are implemented.
+## Foundation / Menu / Procurement / Receiving / Direct Purchase
+Foundation, reusable menu templates, scheduled-menu snapshots, stock reservations, procurement requests, PO generation, H-1 cancellation, cumulative receiving, and direct purchase are implemented.
 
-Procurement allocation:
+Procurement allocation remains:
 ```text
 active_reserved_stock = SUM(ACTIVE reservation qty)
 available_stock = MAX(current_stock - active_reserved_stock, 0)
@@ -33,102 +34,127 @@ allocation_qty = MIN(gross_requirement, available_stock)
 net_procurement = MAX(gross_requirement - available_stock, 0)
 ```
 
-## Receiving
-Multiple receipts per PO item are supported. Cumulative vendor receipt quantity drives `NOT_RECEIVED`, `PARTIAL_RECEIVED`, `RECEIVED`, and `OVER_RECEIVED`. Positive receipts atomically create stock `IN` + `PO_RECEIPT` movement. Zero receipt quantity is a valid operational event and creates no movement.
+Receiving supports cumulative receipt quantities. Direct purchase supports `SHORTAGE` and `ADDITIONAL_REQUIREMENT`, both applying stock `IN` atomically with ledger movements.
 
-## 000007 Direct Purchase
+## 000008 Material Usage
 
-### direct_purchase_type
-- `SHORTAGE`
-- `ADDITIONAL_REQUIREMENT`
+### material_usage_status
+- `DRAFT`
+- `WAITING_APPROVAL`
+- `APPROVED`
+- `NEEDS_REVISION`
 
-### additional_requirements
-Records a production portion increase without mutating the original procurement snapshot.
+### material_usages
+One material-usage lifecycle exists per scheduled menu.
 
+Important fields:
+- `scheduled_menu_id UNIQUE`
+- `usage_date`
+- `submitted_by`
+- `status`
+- `version > 0`
+- `submitted_at`
+- `applied_at`
+- timestamps
+
+`version` is monotonically incremented whenever editable usage data is revised. Historical approvals are never deleted.
+
+### material_usage_items
 Fields:
-- `scheduled_menu_id`
-- `previous_portions > 0`
-- `new_portions > previous_portions`
-- `created_by`
-- `created_at`
-
-The scheduled-menu row is locked while current effective portions are resolved. Current effective portions are the most recent `additional_requirements.new_portions`, falling back to original `scheduled_menus.planned_portions`.
-
-### additional_requirement_items
-Server-calculated material requirements for the portion delta.
-
-```text
-additional_portions = new_portions - current_effective_portions
-additional_qty(material) = SUM(snapshot qty_per_portion * additional_portions)
-```
-
-A material appears once per additional requirement after aggregation across scheduled-menu components.
-
-### direct_purchases
-Header fields:
-- `scheduled_menu_id`
-- `purchase_type`
-- `source_name`
-- `purchase_date`
-- `purchased_by`
-- `note`
-
-Vendor/source remains transaction data, not master data.
-
-### direct_purchase_items
-Each item belongs to exactly one business source:
-- a `purchase_order_item_id` for `SHORTAGE`; or
-- an `additional_requirement_item_id` for `ADDITIONAL_REQUIREMENT`.
-
-Constraint requires exactly one of those references to be non-null.
-
-Fields include:
+- `material_usage_id`
 - `material_id`
-- `qty > 0`
+- `planned_qty >= 0`
+- `actual_qty >= 0`
 - `unit_id`
-- `unit_price >= 0`
-- generated `total_amount = ROUND(qty * unit_price, 2)`
 
-## SHORTAGE Calculation and Transaction
-PO item is locked before calculating shortage.
+A material is unique per usage.
+
+`planned_qty` is server-derived from the scheduled-menu snapshot and the latest effective portion count:
 
 ```text
-remaining_shortage_qty = MAX(
-    ordered_qty
-    - SUM(receipt_items.received_qty)
-    - SUM(SHORTAGE direct_purchase_items.qty),
-    0
-)
+effective_portions = latest additional_requirements.new_portions
+                     OR scheduled_menus.planned_portions
+planned_qty(material) = SUM(snapshot qty_per_portion * effective_portions)
 ```
 
-Rules:
-- shortage purchase qty must be `> 0`;
-- shortage purchase qty cannot exceed `remaining_shortage_qty`;
-- material/unit come from the locked PO item;
-- direct purchase item + stock increase + `SHORTAGE_PURCHASE` movement commit atomically;
-- if purchase qty exactly equals remaining shortage, PO item becomes `FULFILLED` and PO header is recalculated.
+The client controls only `actual_qty`, not `planned_qty`.
 
-## ADDITIONAL_REQUIREMENT Transaction
-The service executes atomically:
+### material_usage_approvals
+Approver roles:
+- `CHEF`
+- `AKUNTAN`
+
+Decisions:
+- `APPROVED`
+- `REJECTED`
+
+Important fields:
+- `material_usage_id`
+- `approver_role`
+- `approver_id`
+- `entity_version`
+- `status`
+- `note`
+- `decided_at`
+
+Unique constraint:
+```text
+(material_usage_id, approver_role, entity_version)
+```
+
+This guarantees at most one Chef decision and one Accountant decision for one usage version.
+
+## Revision / Approval Semantics
+
+Editable states:
+- `DRAFT`
+- `NEEDS_REVISION`
+
+A revision:
+1. locks the usage row;
+2. increments `version`;
+3. resets status to `DRAFT`;
+4. clears submission/application timestamps;
+5. replaces current usage-item rows;
+6. preserves all previous approval rows as immutable history.
+
+Only approvals whose `entity_version` equals the current usage `version` count toward final approval.
+
+A rejection while `WAITING_APPROVAL` changes status to `NEEDS_REVISION` and does not change stock.
+
+## Dual Approval + Stock OUT Transaction
+
+The second valid approval for the current version triggers application in the same transaction:
 
 ```text
-lock scheduled menu
-resolve current effective portions
-require new_portions > current effective portions
-calculate additional material qty from scheduled snapshot
-require exactly one client price per calculated material
-create additional_requirements header
-create additional_requirement_items
-create ADDITIONAL_REQUIREMENT direct purchase
-for each material:
-    create direct_purchase_item
-    ensure + lock material stock
-    increase stock
-    create stock movement IN / ADDITIONAL_REQUIREMENT
+lock material_usage
+validate WAITING_APPROVAL
+validate approver is active CHEF or AKUNTAN
+insert versioned approval
+count current-version approved roles
+if only one role approved:
+    commit approval only
+if both roles approved:
+    for each usage item:
+        ensure material_stocks row
+        lock material_stocks row
+        require stock >= actual_qty
+        decrement stock
+        create OUT / MATERIAL_USAGE stock movement
+        consume ACTIVE reservations for scheduled menu + material
+    mark material_usage APPROVED + applied_at
 commit
 ```
 
-Original procurement gross/existing/reserved/net snapshots remain unchanged.
+If any material lacks sufficient stock, the entire second-approval transaction rolls back. This means the second approval row, all stock decrements, all movements, reservation consumption, and final `APPROVED` status are all rejected together.
+
+Zero actual usage creates no stock movement but still consumes the associated active reservation because the scheduled production allocation is complete for that material.
+
+## Inventory Queries Added for Usage
+- `DecreaseMaterialStockIfSufficient`
+- `ConsumeActiveReservationsByScheduledMenuMaterial`
+
+`DecreaseMaterialStockIfSufficient` includes `qty >= subtract_qty` in the SQL predicate, so negative stock cannot be created even under concurrent operations.
 
 ## sqlc Query Files
 Implemented:
@@ -138,15 +164,22 @@ Implemented:
 - `internal/database/query/procurement.sql`
 - `internal/database/query/receiving.sql`
 - `internal/database/query/direct_purchase.sql`
+- `internal/database/query/material_usage.sql`
 
-## Planned Usage / Opname
-Material usage and stock adjustment both require Chef + Accountant approval. Stock changes occur only after valid approvals for the current entity version.
+## Next: Stock Opname
+Planned `000009_stock_opname.sql`:
+- stock-opname header/items;
+- system vs physical quantity snapshot;
+- server-calculated difference;
+- no automatic stock correction;
+- versioned Chef + Accountant approval for adjustment;
+- approved adjustment creates `ADJUSTMENT_IN` or `ADJUSTMENT_OUT` movement atomically.
 
 ## Important Transaction Rules
 - Procurement stock check + reservation: atomic with stock row lock.
 - H-1 replacement reservation + PO-item cancellation: atomic.
 - Receipt + stock IN: atomic with PO-item lock.
-- SHORTAGE purchase + stock IN: atomic with PO-item lock and remaining-shortage calculation.
+- SHORTAGE purchase + stock IN: atomic with PO-item lock.
 - ADDITIONAL_REQUIREMENT + stock IN: atomic with scheduled-menu lock.
-- Approved usage + stock OUT: atomic.
-- Approved adjustment + stock movement: atomic.
+- Dual-approved material usage + stock OUT + reservation consumption: atomic.
+- Approved stock adjustment + movement: planned atomic operation.
