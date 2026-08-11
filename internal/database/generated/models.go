@@ -318,6 +318,134 @@ func (ns NullReceiptDocumentType) Value() (driver.Value, error) {
 	return string(ns.ReceiptDocumentType), nil
 }
 
+type StockAdjustmentApprovalDecision string
+
+const (
+	StockAdjustmentApprovalDecisionAPPROVED StockAdjustmentApprovalDecision = "APPROVED"
+	StockAdjustmentApprovalDecisionREJECTED StockAdjustmentApprovalDecision = "REJECTED"
+)
+
+func (e *StockAdjustmentApprovalDecision) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = StockAdjustmentApprovalDecision(s)
+	case string:
+		*e = StockAdjustmentApprovalDecision(s)
+	default:
+		return fmt.Errorf("unsupported scan type for StockAdjustmentApprovalDecision: %T", src)
+	}
+	return nil
+}
+
+type NullStockAdjustmentApprovalDecision struct {
+	StockAdjustmentApprovalDecision StockAdjustmentApprovalDecision `json:"stock_adjustment_approval_decision"`
+	Valid                           bool                            `json:"valid"` // Valid is true if StockAdjustmentApprovalDecision is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullStockAdjustmentApprovalDecision) Scan(value interface{}) error {
+	if value == nil {
+		ns.StockAdjustmentApprovalDecision, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.StockAdjustmentApprovalDecision.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullStockAdjustmentApprovalDecision) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.StockAdjustmentApprovalDecision), nil
+}
+
+type StockAdjustmentApproverRole string
+
+const (
+	StockAdjustmentApproverRoleCHEF    StockAdjustmentApproverRole = "CHEF"
+	StockAdjustmentApproverRoleAKUNTAN StockAdjustmentApproverRole = "AKUNTAN"
+)
+
+func (e *StockAdjustmentApproverRole) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = StockAdjustmentApproverRole(s)
+	case string:
+		*e = StockAdjustmentApproverRole(s)
+	default:
+		return fmt.Errorf("unsupported scan type for StockAdjustmentApproverRole: %T", src)
+	}
+	return nil
+}
+
+type NullStockAdjustmentApproverRole struct {
+	StockAdjustmentApproverRole StockAdjustmentApproverRole `json:"stock_adjustment_approver_role"`
+	Valid                       bool                        `json:"valid"` // Valid is true if StockAdjustmentApproverRole is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullStockAdjustmentApproverRole) Scan(value interface{}) error {
+	if value == nil {
+		ns.StockAdjustmentApproverRole, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.StockAdjustmentApproverRole.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullStockAdjustmentApproverRole) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.StockAdjustmentApproverRole), nil
+}
+
+type StockAdjustmentStatus string
+
+const (
+	StockAdjustmentStatusDRAFT           StockAdjustmentStatus = "DRAFT"
+	StockAdjustmentStatusWAITINGAPPROVAL StockAdjustmentStatus = "WAITING_APPROVAL"
+	StockAdjustmentStatusAPPROVED        StockAdjustmentStatus = "APPROVED"
+	StockAdjustmentStatusNEEDSREVISION   StockAdjustmentStatus = "NEEDS_REVISION"
+)
+
+func (e *StockAdjustmentStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = StockAdjustmentStatus(s)
+	case string:
+		*e = StockAdjustmentStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for StockAdjustmentStatus: %T", src)
+	}
+	return nil
+}
+
+type NullStockAdjustmentStatus struct {
+	StockAdjustmentStatus StockAdjustmentStatus `json:"stock_adjustment_status"`
+	Valid                 bool                  `json:"valid"` // Valid is true if StockAdjustmentStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullStockAdjustmentStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.StockAdjustmentStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.StockAdjustmentStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullStockAdjustmentStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.StockAdjustmentStatus), nil
+}
+
 type StockMovementType string
 
 const (
@@ -360,6 +488,51 @@ func (ns NullStockMovementType) Value() (driver.Value, error) {
 		return nil, nil
 	}
 	return string(ns.StockMovementType), nil
+}
+
+type StockOpnameStatus string
+
+const (
+	StockOpnameStatusDRAFT                     StockOpnameStatus = "DRAFT"
+	StockOpnameStatusMATCHED                   StockOpnameStatus = "MATCHED"
+	StockOpnameStatusDIFFERENCEFOUND           StockOpnameStatus = "DIFFERENCE_FOUND"
+	StockOpnameStatusWAITINGADJUSTMENTAPPROVAL StockOpnameStatus = "WAITING_ADJUSTMENT_APPROVAL"
+	StockOpnameStatusCOMPLETED                 StockOpnameStatus = "COMPLETED"
+)
+
+func (e *StockOpnameStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = StockOpnameStatus(s)
+	case string:
+		*e = StockOpnameStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for StockOpnameStatus: %T", src)
+	}
+	return nil
+}
+
+type NullStockOpnameStatus struct {
+	StockOpnameStatus StockOpnameStatus `json:"stock_opname_status"`
+	Valid             bool              `json:"valid"` // Valid is true if StockOpnameStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullStockOpnameStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.StockOpnameStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.StockOpnameStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullStockOpnameStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.StockOpnameStatus), nil
 }
 
 type StockReferenceType string
@@ -757,6 +930,32 @@ type ScheduledMenuComponentMaterial struct {
 	UpdatedAt                pgtype.Timestamptz `json:"updated_at"`
 }
 
+type StockAdjustment struct {
+	ID                pgtype.UUID           `json:"id"`
+	StockOpnameItemID pgtype.UUID           `json:"stock_opname_item_id"`
+	MaterialID        pgtype.UUID           `json:"material_id"`
+	AdjustmentQty     pgtype.Numeric        `json:"adjustment_qty"`
+	Reason            string                `json:"reason"`
+	SubmittedBy       pgtype.UUID           `json:"submitted_by"`
+	Status            StockAdjustmentStatus `json:"status"`
+	Version           int32                 `json:"version"`
+	SubmittedAt       pgtype.Timestamptz    `json:"submitted_at"`
+	CreatedAt         pgtype.Timestamptz    `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz    `json:"updated_at"`
+}
+
+type StockAdjustmentApproval struct {
+	ID                pgtype.UUID                     `json:"id"`
+	StockAdjustmentID pgtype.UUID                     `json:"stock_adjustment_id"`
+	ApproverRole      StockAdjustmentApproverRole     `json:"approver_role"`
+	ApproverID        pgtype.UUID                     `json:"approver_id"`
+	EntityVersion     int32                           `json:"entity_version"`
+	Status            StockAdjustmentApprovalDecision `json:"status"`
+	Note              pgtype.Text                     `json:"note"`
+	DecidedAt         pgtype.Timestamptz              `json:"decided_at"`
+	CreatedAt         pgtype.Timestamptz              `json:"created_at"`
+}
+
 type StockMovement struct {
 	ID            pgtype.UUID        `json:"id"`
 	MaterialID    pgtype.UUID        `json:"material_id"`
@@ -768,6 +967,28 @@ type StockMovement struct {
 	MovementDate  pgtype.Timestamptz `json:"movement_date"`
 	CreatedBy     pgtype.UUID        `json:"created_by"`
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+}
+
+type StockOpname struct {
+	ID              pgtype.UUID        `json:"id"`
+	ScheduledMenuID pgtype.UUID        `json:"scheduled_menu_id"`
+	OpnameDate      pgtype.Date        `json:"opname_date"`
+	PerformedBy     pgtype.UUID        `json:"performed_by"`
+	Status          StockOpnameStatus  `json:"status"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+}
+
+type StockOpnameItem struct {
+	ID            pgtype.UUID        `json:"id"`
+	StockOpnameID pgtype.UUID        `json:"stock_opname_id"`
+	MaterialID    pgtype.UUID        `json:"material_id"`
+	SystemQty     pgtype.Numeric     `json:"system_qty"`
+	PhysicalQty   pgtype.Numeric     `json:"physical_qty"`
+	DifferenceQty pgtype.Numeric     `json:"difference_qty"`
+	UnitID        pgtype.UUID        `json:"unit_id"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 }
 
 type StockReservation struct {
