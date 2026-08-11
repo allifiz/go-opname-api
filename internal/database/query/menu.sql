@@ -148,3 +148,19 @@ JOIN materials m ON m.id = smcm.material_id
 JOIN units u ON u.id = smcm.unit_id
 WHERE smcm.scheduled_menu_component_id = $1
 ORDER BY m.name ASC;
+
+-- name: GetScheduledMenuGrossRequirements :many
+SELECT
+    smcm.material_id,
+    m.name AS material_name,
+    smcm.unit_id,
+    u.code AS unit_code,
+    SUM(smcm.qty_per_portion * sm.planned_portions)::NUMERIC(18,4) AS gross_requirement_qty
+FROM scheduled_menus sm
+JOIN scheduled_menu_components smc ON smc.scheduled_menu_id = sm.id
+JOIN scheduled_menu_component_materials smcm ON smcm.scheduled_menu_component_id = smc.id
+JOIN materials m ON m.id = smcm.material_id
+JOIN units u ON u.id = smcm.unit_id
+WHERE sm.id = $1
+GROUP BY smcm.material_id, m.name, smcm.unit_id, u.code
+ORDER BY m.name ASC;
