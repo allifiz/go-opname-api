@@ -8,7 +8,7 @@ CREATE TYPE procurement_request_status AS ENUM (
 
 CREATE TABLE procurement_requests (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    scheduled_menu_id UUID NOT NULL REFERENCES scheduled_menus(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+    scheduled_menu_id UUID NOT NULL UNIQUE REFERENCES scheduled_menus(id) ON UPDATE CASCADE ON DELETE RESTRICT,
     status procurement_request_status NOT NULL DEFAULT 'DRAFT',
     checked_by UUID REFERENCES users(id) ON UPDATE CASCADE ON DELETE SET NULL,
     checked_at TIMESTAMPTZ,
@@ -23,8 +23,6 @@ CREATE TABLE procurement_requests (
     )
 );
 
-CREATE INDEX idx_procurement_requests_scheduled_menu
-    ON procurement_requests(scheduled_menu_id);
 CREATE INDEX idx_procurement_requests_status
     ON procurement_requests(status);
 
