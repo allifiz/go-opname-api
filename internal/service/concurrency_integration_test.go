@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -78,6 +79,42 @@ func seedPurchaseOrderItem(t *testing.T, pool *pgxpool.Pool, scheduledID, materi
 	return scalarID(t, pool, `INSERT INTO purchase_order_items(purchase_order_id,procurement_request_item_id,material_id,ordered_qty,unit_id,agreed_unit_price,supplier_name) VALUES($1,$2,$3,$4,$5,1000,'supplier') RETURNING id::text`, poID, requestItemID, materialID, ordered, unitID)
 }
 
+func TestConcurrentProcurementStockChecksDoNotDoubleReserve(t *testing.T) {
+	pool := integrationPool(t)
+	materialID, unitID := seedMaterial(t, pool, "10")
+	scheduledA := seedScheduledMenu(t, pool, materialID, unitID)
+	scheduledB := seedScheduledMenu(t, pool, materialID, unitID)
+	svc := NewProcurementService(repository.NewStore(pool))
+
+	start := make(chan struct{})
+	errCh := make(chan error, 2)
+	for _, scheduledID := range []string{scheduledA, scheduledB} {
+		go func(id string) {
+			<-start
+			_, err := svc.CreateStockCheck(context.Background(), id)
+			errCh <- err
+		}(scheduledID)
+	}
+	close(start)
+	for i := 0; i < 2; i++ {
+		if err := <-errCh; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var reserved, totalNet string
+	var activeReservations int
+	if err := pool.QueryRow(context.Background(), `SELECT COALESCE(SUM(qty),0)::numeric(18,4)::text, COUNT(*) FROM stock_reservations WHERE material_id=$1 AND status='ACTIVE'`, materialID).Scan(&reserved, &activeReservations); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(context.Background(), `SELECT COALESCE(SUM(pri.net_procurement_qty),0)::numeric(18,4)::text FROM procurement_request_items pri JOIN procurement_requests pr ON pr.id=pri.procurement_request_id WHERE pri.material_id=$1 AND pr.scheduled_menu_id IN ($2,$3)`, materialID, scheduledA, scheduledB).Scan(&totalNet); err != nil {
+		t.Fatal(err)
+	}
+	if reserved != "10.0000" || activeReservations != 1 || totalNet != "10.0000" {
+		t.Fatalf("reserved=%s active=%d total_net=%s", reserved, activeReservations, totalNet)
+	}
+}
+
 func TestConcurrentReceivingSerializesCumulativeStatus(t *testing.T) {
 	pool := integrationPool(t)
 	materialID, unitID := seedMaterial(t, pool, "0")
@@ -109,6 +146,52 @@ func TestConcurrentReceivingSerializesCumulativeStatus(t *testing.T) {
 	if err := pool.QueryRow(context.Background(), `SELECT qty::text FROM material_stocks WHERE material_id=$1`, materialID).Scan(&qty); err != nil { t.Fatal(err) }
 	if err := pool.QueryRow(context.Background(), `SELECT status::text FROM purchase_order_items WHERE id=$1`, poItemID).Scan(&status); err != nil { t.Fatal(err) }
 	if qty != "12.0000" || status != "OVER_RECEIVED" { t.Fatalf("got stock=%s status=%s", qty, status) }
+}
+
+func TestConcurrentShortagePurchasesCannotExceedRemainingShortage(t *testing.T) {
+	pool := integrationPool(t)
+	materialID, unitID := seedMaterial(t, pool, "0")
+	scheduledID := seedScheduledMenu(t, pool, materialID, unitID)
+	poItemID := seedPurchaseOrderItem(t, pool, scheduledID, materialID, unitID, "6")
+	pengawas := seedUser(t, pool, "PENGAWAS_BAHAN_BAKU")
+	svc := NewDirectPurchaseService(repository.NewStore(pool))
+
+	start := make(chan struct{})
+	errCh := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			<-start
+			_, err := svc.CreateShortage(context.Background(), poItemID, CreateShortageDirectPurchaseInput{
+				Qty: "4", UnitPrice: "1000", SourceName: "test source", PurchasedBy: pengawas,
+			})
+			errCh <- err
+		}()
+	}
+	close(start)
+
+	success, exceeded := 0, 0
+	for i := 0; i < 2; i++ {
+		err := <-errCh
+		switch {
+		case err == nil:
+			success++
+		case errors.Is(err, ErrShortageQtyExceeded):
+			exceeded++
+		default:
+			t.Fatalf("unexpected shortage error: %v", err)
+		}
+	}
+
+	var stockQty, purchasedQty string
+	if err := pool.QueryRow(context.Background(), `SELECT qty::text FROM material_stocks WHERE material_id=$1`, materialID).Scan(&stockQty); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(context.Background(), `SELECT COALESCE(SUM(dpi.qty),0)::numeric(18,4)::text FROM direct_purchase_items dpi JOIN direct_purchases dp ON dp.id=dpi.direct_purchase_id WHERE dpi.purchase_order_item_id=$1 AND dp.purchase_type='SHORTAGE'`, poItemID).Scan(&purchasedQty); err != nil {
+		t.Fatal(err)
+	}
+	if success != 1 || exceeded != 1 || stockQty != "4.0000" || purchasedQty != "4.0000" {
+		t.Fatalf("success=%d exceeded=%d stock=%s purchased=%s", success, exceeded, stockQty, purchasedQty)
+	}
 }
 
 func TestConcurrentUsageApprovalsApplyStockOnce(t *testing.T) {
