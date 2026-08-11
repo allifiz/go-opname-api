@@ -106,6 +106,22 @@ func (s *Store) RejectProcurementRequest(ctx context.Context, id pgtype.UUID) (d
 	return s.queries.RejectProcurementRequest(ctx, id)
 }
 
+func (s *Store) GetPurchaseOrder(ctx context.Context, id pgtype.UUID) (db.PurchaseOrder, error) {
+	return s.queries.GetPurchaseOrderByID(ctx, id)
+}
+
+func (s *Store) GetPurchaseOrderByProcurementRequest(ctx context.Context, id pgtype.UUID) (db.PurchaseOrder, error) {
+	return s.queries.GetPurchaseOrderByProcurementRequest(ctx, id)
+}
+
+func (s *Store) ListPurchaseOrdersByScheduledMenu(ctx context.Context, id pgtype.UUID) ([]db.PurchaseOrder, error) {
+	return s.queries.ListPurchaseOrdersByScheduledMenu(ctx, id)
+}
+
+func (s *Store) ListPurchaseOrderItems(ctx context.Context, id pgtype.UUID) ([]db.ListPurchaseOrderItemsRow, error) {
+	return s.queries.ListPurchaseOrderItems(ctx, id)
+}
+
 func (s *Store) WithTx(ctx context.Context, fn func(*db.Queries) error) error {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
