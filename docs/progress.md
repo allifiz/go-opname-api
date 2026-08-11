@@ -1,7 +1,7 @@
 # Project Progress
 
 ## Current Phase
-Foundation, Menu, Inventory, and Procurement database layer implemented; local generator/runtime validation pending.
+Foundation, Menu, Inventory, and Procurement database layer implemented; GitHub Actions validation pipeline enabled.
 
 ## Last Updated
 2026-08-11
@@ -32,6 +32,11 @@ Foundation, Menu, Inventory, and Procurement database layer implemented; local g
 - Deferred FK from `stock_reservations.procurement_request_item_id` to `procurement_request_items.id` implemented.
 - Procurement and PO sqlc queries added.
 - Procurement quantity constraints and PO cancellation audit constraints implemented.
+- GitHub Actions CI workflow added at `.github/workflows/ci.yml`.
+- CI uses PostgreSQL 17, Goose v3.27.1, sqlc v1.31.1, and Go version from `go.mod`.
+- CI validates migrations up/down/up, runs sqlc generation, tests, and builds all Go packages.
+- CI automatically commits regenerated sqlc output to `main` when generated code changes.
+- `docs/architecture.md` updated with CI validation strategy.
 - `docs/database.md` synchronized with actual migration/query state.
 
 ## Implemented Migrations
@@ -50,37 +55,37 @@ Foundation, Menu, Inventory, and Procurement database layer implemented; local g
 ## Important Migration Note
 The original starter `000001_create_foundation.sql` was rewritten because the project is still in the initial build phase. A local development database that already ran the old starter migration must be recreated/reset before applying the new schema.
 
-## Validation Status
-Source-level review is complete for the newly added SQL.
+## Validation Strategy
+Executable validation now runs in GitHub Actions because the ChatGPT execution sandbox cannot be granted outbound network access from the conversation.
 
-Not yet validated in an executable local environment:
-- Goose migration `up`/`down` on a clean PostgreSQL database.
-- `sqlc generate`.
-- `go test ./...` / `go build ./...` after regenerated database code.
-
-The current agent runtime does not have `sqlc` or Goose installed and cannot resolve `github.com` to download them, so these checks must be run in the normal local development environment before service implementation is considered validated.
+CI performs:
+1. PostgreSQL service startup.
+2. Goose migration validation.
+3. Migration up.
+4. Migration rollback to version 0.
+5. Migration up again.
+6. `sqlc generate`.
+7. `go test ./...`.
+8. `go build ./...`.
+9. Automatic commit of changed sqlc generated files.
 
 ## In Progress
-- Prepare clean local database validation.
-- Generate sqlc output.
-- Start HTTP/service/repository implementation for material and menu flows after generator validation passes.
+- Observe the first CI run and fix any migration/sqlc/build error it finds.
+- After CI is green, implement material and menu HTTP/service/repository flows.
 
 ## Next
-1. Recreate/reset the local development database if it previously ran the old starter migration.
-2. Run Goose migrations `000001` through `000004` against a clean PostgreSQL database.
-3. Run `sqlc generate`.
-4. Run `go test ./...` and/or `go build ./...`.
-5. Fix any generator/schema mismatch found by those checks.
-6. Implement material endpoints/service/repository.
-7. Implement period and menu-template endpoints/service/repository.
-8. Implement scheduled-menu snapshot transaction.
-9. Implement procurement stock-check + reservation transaction.
-10. Continue with `000005_receiving.sql` after the current DB layer is validated.
+1. Inspect the first GitHub Actions validation result.
+2. Fix any migration/sqlc/build issue reported by CI.
+3. Implement material endpoints/service/repository.
+4. Implement period and menu-template endpoints/service/repository.
+5. Implement scheduled-menu snapshot transaction.
+6. Implement procurement stock-check + reservation transaction.
+7. Continue with `000005_receiving.sql` after the current DB/application layer is stable.
 
 ## Blockers / TBD
 - `KEPALA_SPPG` exists as a role, but operational permissions are still TBD.
 - No application payment workflow is required.
-- Executable migration/sqlc validation must be run in a normal local development environment because this agent runtime cannot download the required CLI tools.
+- Direct outbound internet/DNS for the ChatGPT execution sandbox cannot be enabled from repository code; GitHub Actions is the chosen executable validation environment instead.
 
 ## Latest Decisions
 - Vendor is not master data; supplier/source name is stored per transaction/item.
@@ -97,14 +102,11 @@ The current agent runtime does not have `sqlc` or Goose installed and cannot res
 - Stock reservation is not a stock movement because it does not physically change quantity.
 - H-1 PO-item cancellation timing is enforced in the service transaction because it depends on the parent PO delivery date.
 - Routine development is performed directly on `main` while repository rules permit direct writes.
+- GitHub Actions is the canonical executable validation environment for migrations/sqlc/build checks initiated from this workflow.
 
 ## Changed Files (Latest Batch)
-- `internal/database/query/foundation.sql`
-- `internal/database/query/menu.sql`
-- `internal/database/query/inventory.sql`
-- `migrations/000004_create_procurement.sql`
-- `internal/database/query/procurement.sql`
-- `docs/database.md`
+- `.github/workflows/ci.yml`
+- `docs/architecture.md`
 - `docs/progress.md`
 
 ## Notes for Next Agent
