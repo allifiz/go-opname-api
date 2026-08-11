@@ -32,6 +32,17 @@ INSERT INTO stock_opname_items (
 ) VALUES ($1, $2, $3, $4, $5)
 RETURNING *;
 
+-- name: GetStockOpnameItemByID :one
+SELECT *
+FROM stock_opname_items
+WHERE id = $1;
+
+-- name: UpdateStockOpnameItemPhysicalQty :one
+UPDATE stock_opname_items
+SET physical_qty = $2, updated_at = NOW()
+WHERE id = $1
+RETURNING *;
+
 -- name: ListStockOpnameItems :many
 SELECT
     soi.id,
@@ -89,12 +100,14 @@ SELECT
     sa.*,
     soi.stock_opname_id,
     soi.unit_id,
+    soi.system_qty,
+    soi.physical_qty,
     so.scheduled_menu_id
 FROM stock_adjustments sa
 JOIN stock_opname_items soi ON soi.id = sa.stock_opname_item_id
 JOIN stock_opnames so ON so.id = soi.stock_opname_id
 WHERE sa.id = $1
-FOR UPDATE OF sa;
+FOR UPDATE OF sa, soi;
 
 -- name: UpdateStockAdjustmentForRevision :one
 UPDATE stock_adjustments
