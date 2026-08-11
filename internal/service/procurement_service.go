@@ -30,7 +30,7 @@ type VerifyProcurementInput struct {
 }
 
 func numericPositive(n pgtype.Numeric) bool {
-	return n.Valid && !n.NaN && n.InfinityModifier == pgtype.Finite && n.Int != nil && n.Int.Sign() > 0
+	return n.Valid && !n.NaN && n.Int != nil && n.Int.Sign() > 0
 }
 
 func (s *ProcurementService) CreateStockCheck(ctx context.Context, scheduledMenuIDValue string) (map[string]any, error) {
@@ -108,11 +108,11 @@ func (s *ProcurementService) CreateStockCheck(ctx context.Context, scheduledMenu
 
 			if numericPositive(availability.AllocationQty) {
 				if _, err := q.CreateStockReservation(ctx, db.CreateStockReservationParams{
-					ScheduledMenuID:         scheduledMenuID,
+					ScheduledMenuID:          scheduledMenuID,
 					ProcurementRequestItemID: item.ID,
-					MaterialID:              requirement.MaterialID,
-					Qty:                     availability.AllocationQty,
-					UnitID:                  requirement.UnitID,
+					MaterialID:               requirement.MaterialID,
+					Qty:                      availability.AllocationQty,
+					UnitID:                   requirement.UnitID,
 				}); err != nil {
 					return err
 				}
@@ -124,14 +124,10 @@ func (s *ProcurementService) CreateStockCheck(ctx context.Context, scheduledMenu
 		return nil, err
 	}
 
-	return s.GetProcurementRequest(ctx, request.ID.String())
+	return s.getProcurementRequestByUUID(ctx, request.ID)
 }
 
-func (s *ProcurementService) GetProcurementRequest(ctx context.Context, idValue string) (map[string]any, error) {
-	id, err := parseUUID(idValue)
-	if err != nil {
-		return nil, err
-	}
+func (s *ProcurementService) getProcurementRequestByUUID(ctx context.Context, id pgtype.UUID) (map[string]any, error) {
 	request, err := s.store.GetProcurementRequest(ctx, id)
 	if err != nil {
 		return nil, err
@@ -151,6 +147,14 @@ func (s *ProcurementService) GetProcurementRequest(ctx context.Context, idValue 
 	}, nil
 }
 
+func (s *ProcurementService) GetProcurementRequest(ctx context.Context, idValue string) (map[string]any, error) {
+	id, err := parseUUID(idValue)
+	if err != nil {
+		return nil, err
+	}
+	return s.getProcurementRequestByUUID(ctx, id)
+}
+
 func (s *ProcurementService) ListByScheduledMenu(ctx context.Context, scheduledMenuIDValue string) ([]db.ProcurementRequest, error) {
 	id, err := parseUUID(scheduledMenuIDValue)
 	if err != nil {
@@ -168,10 +172,14 @@ func (s *ProcurementService) Submit(ctx context.Context, idValue string) (db.Pro
 	if err != nil {
 		return db.ProcurementRequest{}, err
 	}
-	if current.Status != db.ProcurementRequestStatusDraft && current.Status != db.ProcurementRequestStatusRejected {
+	if current.Status != db.ProcurementRequestStatusDRAFT && current.Status != db.ProcurementRequestStatusREJECTED {
 		return db.ProcurementRequest{}, fmt.Errorf("%w: request must be DRAFT or REJECTED", ErrInvalidTransition)
 	}
-	return s.store.SubmitProcurementRequest(ctx, id)
+	request, err := s.store.SubmitProcurementRequest(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return db.ProcurementRequest{}, fmt.Errorf("%w: request status changed concurrently", ErrConflict)
+	}
+	return request, err
 }
 
 func (s *ProcurementService) Verify(ctx context.Context, idValue string, input VerifyProcurementInput) (db.ProcurementRequest, error) {
@@ -187,10 +195,14 @@ func (s *ProcurementService) Verify(ctx context.Context, idValue string, input V
 	if err != nil {
 		return db.ProcurementRequest{}, err
 	}
-	if current.Status != db.ProcurementRequestStatusWaitingVerification {
+	if current.Status != db.ProcurementRequestStatusWAITINGVERIFICATION {
 		return db.ProcurementRequest{}, fmt.Errorf("%w: request must be WAITING_VERIFICATION", ErrInvalidTransition)
 	}
-	return s.store.VerifyProcurementRequest(ctx, db.VerifyProcurementRequestParams{ID: id, VerifiedBy: verifiedBy})
+	request, err := s.store.VerifyProcurementRequest(ctx, db.VerifyProcurementRequestParams{ID: id, VerifiedBy: verifiedBy})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return db.ProcurementRequest{}, fmt.Errorf("%w: request status changed concurrently", ErrConflict)
+	}
+	return request, err
 }
 
 func (s *ProcurementService) Reject(ctx context.Context, idValue string) (db.ProcurementRequest, error) {
@@ -202,7 +214,7 @@ func (s *ProcurementService) Reject(ctx context.Context, idValue string) (db.Pro
 	if err != nil {
 		return db.ProcurementRequest{}, err
 	}
-	if current.Status != db.ProcurementRequestStatusWaitingVerification {
+	if current.Status != db.ProcurementRequestStatusWAITINGVERIFICATION {
 		return db.ProcurementRequest{}, fmt.Errorf("%w: request must be WAITING_VERIFICATION", ErrInvalidTransition)
 	}
 	request, err := s.store.RejectProcurementRequest(ctx, id)
