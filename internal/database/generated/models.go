@@ -146,6 +146,50 @@ func (ns NullPurchaseOrderStatus) Value() (driver.Value, error) {
 	return string(ns.PurchaseOrderStatus), nil
 }
 
+type ReceiptDocumentType string
+
+const (
+	ReceiptDocumentTypeINVOICE ReceiptDocumentType = "INVOICE"
+	ReceiptDocumentTypeNOTA    ReceiptDocumentType = "NOTA"
+	ReceiptDocumentTypePHOTO   ReceiptDocumentType = "PHOTO"
+	ReceiptDocumentTypeOTHER   ReceiptDocumentType = "OTHER"
+)
+
+func (e *ReceiptDocumentType) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ReceiptDocumentType(s)
+	case string:
+		*e = ReceiptDocumentType(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ReceiptDocumentType: %T", src)
+	}
+	return nil
+}
+
+type NullReceiptDocumentType struct {
+	ReceiptDocumentType ReceiptDocumentType `json:"receipt_document_type"`
+	Valid               bool                `json:"valid"` // Valid is true if ReceiptDocumentType is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullReceiptDocumentType) Scan(value interface{}) error {
+	if value == nil {
+		ns.ReceiptDocumentType, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ReceiptDocumentType.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullReceiptDocumentType) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ReceiptDocumentType), nil
+}
+
 type StockMovementType string
 
 const (
@@ -389,6 +433,38 @@ type PurchaseOrderItem struct {
 	CancelReason             pgtype.Text             `json:"cancel_reason"`
 	CreatedAt                pgtype.Timestamptz      `json:"created_at"`
 	UpdatedAt                pgtype.Timestamptz      `json:"updated_at"`
+}
+
+type Receipt struct {
+	ID              pgtype.UUID        `json:"id"`
+	PurchaseOrderID pgtype.UUID        `json:"purchase_order_id"`
+	ReceivedAt      pgtype.Timestamptz `json:"received_at"`
+	ReceivedBy      pgtype.UUID        `json:"received_by"`
+	Note            pgtype.Text        `json:"note"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+}
+
+type ReceiptDocument struct {
+	ID           pgtype.UUID         `json:"id"`
+	ReceiptID    pgtype.UUID         `json:"receipt_id"`
+	DocumentType ReceiptDocumentType `json:"document_type"`
+	FileUrl      string              `json:"file_url"`
+	FileName     string              `json:"file_name"`
+	UploadedBy   pgtype.UUID         `json:"uploaded_by"`
+	CreatedAt    pgtype.Timestamptz  `json:"created_at"`
+}
+
+type ReceiptItem struct {
+	ID                  pgtype.UUID        `json:"id"`
+	ReceiptID           pgtype.UUID        `json:"receipt_id"`
+	PurchaseOrderItemID pgtype.UUID        `json:"purchase_order_item_id"`
+	MaterialID          pgtype.UUID        `json:"material_id"`
+	ReceivedQty         pgtype.Numeric     `json:"received_qty"`
+	UnitID              pgtype.UUID        `json:"unit_id"`
+	AgreedUnitPrice     pgtype.Numeric     `json:"agreed_unit_price"`
+	ActualAmount        pgtype.Numeric     `json:"actual_amount"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
 }
 
 type Role struct {

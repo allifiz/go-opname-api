@@ -320,6 +320,34 @@ func (q *Queries) GetUnreservedStockByMaterial(ctx context.Context, materialID p
 	return available_stock_qty, err
 }
 
+const increaseMaterialStock = `-- name: IncreaseMaterialStock :one
+UPDATE material_stocks
+SET
+    qty = qty + $1::NUMERIC,
+    updated_at = NOW()
+WHERE material_id = $2
+  AND unit_id = $3
+RETURNING material_id, qty, unit_id, updated_at
+`
+
+type IncreaseMaterialStockParams struct {
+	AddQty     pgtype.Numeric `json:"add_qty"`
+	MaterialID pgtype.UUID    `json:"material_id"`
+	UnitID     pgtype.UUID    `json:"unit_id"`
+}
+
+func (q *Queries) IncreaseMaterialStock(ctx context.Context, arg IncreaseMaterialStockParams) (MaterialStock, error) {
+	row := q.db.QueryRow(ctx, increaseMaterialStock, arg.AddQty, arg.MaterialID, arg.UnitID)
+	var i MaterialStock
+	err := row.Scan(
+		&i.MaterialID,
+		&i.Qty,
+		&i.UnitID,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const listActiveStockReservationsByMaterial = `-- name: ListActiveStockReservationsByMaterial :many
 SELECT id, scheduled_menu_id, procurement_request_item_id, material_id, qty, unit_id, status, reserved_at, released_at, consumed_at, created_by, created_at, updated_at
 FROM stock_reservations
