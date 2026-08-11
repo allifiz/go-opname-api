@@ -8,6 +8,17 @@ SELECT id, code, name, created_at
 FROM roles
 WHERE code = $1;
 
+-- name: GetUserWithRole :one
+SELECT
+    u.id,
+    u.name,
+    u.email,
+    u.is_active,
+    r.code AS role_code
+FROM users u
+JOIN roles r ON r.id = u.role_id
+WHERE u.id = $1;
+
 -- name: ListUnits :many
 SELECT id, code, name, created_at
 FROM units
