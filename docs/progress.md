@@ -1,7 +1,7 @@
 # Project Progress
 
 ## Current Phase
-Direct purchase (`SHORTAGE` + `ADDITIONAL_REQUIREMENT`) is implemented and green in GitHub Actions. Next focus is material usage + dual approval + stock OUT.
+Material usage, versioned Chef + Accountant approval, and atomic stock OUT are implemented. Latest GitHub Actions validation is in progress.
 
 ## Last Updated
 2026-08-12
@@ -13,21 +13,22 @@ Direct purchase (`SHORTAGE` + `ADDITIONAL_REQUIREMENT`) is implemented and green
 
 ## Completed
 - Foundation, menu, inventory, procurement, PO generation, H-1 cancellation, receiving, and direct purchase implemented.
-- Receiving batch is green through GitHub Actions run #33.
-- `migrations/000007_create_direct_purchase.sql` implemented.
-- Direct purchase types implemented: `SHORTAGE`, `ADDITIONAL_REQUIREMENT`.
-- `SHORTAGE` locks the PO item and calculates remaining shortage from ordered qty minus cumulative vendor receipts minus prior shortage purchases.
-- `SHORTAGE` quantity cannot exceed remaining shortage; excess maps to `422`.
-- Shortage direct purchase creates stock `IN` + `SHORTAGE_PURCHASE` movement atomically.
-- A shortage purchase that exactly closes remaining shortage marks the PO item `FULFILLED` and recalculates PO header status.
-- Additional-production demand is stored separately and does not rewrite original procurement snapshots.
-- Additional requirement flow locks the scheduled menu before resolving current effective portions.
-- Current effective portions use the latest additional requirement, falling back to original planned portions.
-- Additional material quantities are calculated server-side from scheduled-menu snapshot recipe × portion delta.
-- Client supplies one price per calculated material; quantities are not client-controlled.
-- Additional direct purchase creates stock `IN` + `ADDITIONAL_REQUIREMENT` movements atomically.
-- Direct-purchase detail/list endpoints implemented.
-- Direct purchase batch passed GitHub Actions run #44: migrations, rollback/re-apply, `sqlc generate`, `go test ./...`, `go build ./...`, and generated-code synchronization all succeeded.
+- Direct purchase batch is green through GitHub Actions run #44.
+- `migrations/000008_create_material_usage.sql` added.
+- Material usage has one lifecycle per scheduled menu with statuses `DRAFT`, `WAITING_APPROVAL`, `APPROVED`, `NEEDS_REVISION`.
+- Usage items store server-derived `planned_qty` and user-entered `actual_qty`.
+- Usage planned quantity uses the latest effective production portions, including later `ADDITIONAL_REQUIREMENT` increases.
+- Usage revisions are allowed in `DRAFT` / `NEEDS_REVISION`, increment `version`, replace current usage items, and preserve historical approval rows.
+- Chef + Accountant decisions are versioned and unique by usage + role + entity version.
+- Approver identity is resolved against the users/roles tables; only active `CHEF` or `AKUNTAN` users may decide.
+- Rejection moves usage to `NEEDS_REVISION` without changing stock.
+- The second current-version approval triggers stock application atomically.
+- Material stock is locked before decrement and SQL rejects decrement when stock is insufficient.
+- Positive usage creates `OUT / MATERIAL_USAGE` stock movements.
+- Active stock reservations for the scheduled menu/material are marked `CONSUMED` when approved usage is applied.
+- If any material lacks stock, the whole second-approval transaction rolls back, including approval insertion and any earlier stock effects in that transaction.
+- Material usage HTTP routes are wired in `cmd/api/main.go`.
+- `docs/api.md`, `docs/database.md`, and `docs/decisions.md` synchronized with the usage design.
 
 ## Implemented Migrations
 - `migrations/000001_create_foundation.sql`
@@ -37,26 +38,29 @@ Direct purchase (`SHORTAGE` + `ADDITIONAL_REQUIREMENT`) is implemented and green
 - `migrations/000005_purchase_order_constraints.sql`
 - `migrations/000006_create_receiving.sql`
 - `migrations/000007_create_direct_purchase.sql`
+- `migrations/000008_create_material_usage.sql`
 
 ## Newly Implemented HTTP Endpoints
-- `POST /api/v1/purchase-order-items/:id/direct-purchases/shortage`
-- `POST /api/v1/scheduled-menus/:id/direct-purchases/additional-requirement`
-- `GET /api/v1/direct-purchases/:id`
-- `GET /api/v1/scheduled-menus/:id/direct-purchases`
+- `POST /api/v1/scheduled-menus/:id/material-usage`
+- `GET /api/v1/material-usages/:id`
+- `PUT /api/v1/material-usages/:id`
+- `POST /api/v1/material-usages/:id/submit`
+- `POST /api/v1/material-usages/:id/decision`
 
-Existing master/menu/procurement/PO/receiving endpoints remain implemented as documented in `docs/api.md`.
+Existing master/menu/procurement/PO/receiving/direct-purchase endpoints remain implemented as documented in `docs/api.md`.
 
 ## Important Implementation Notes
-- Authentication is not implemented; `purchased_by` temporarily comes from the request body.
-- Quantities/prices are PostgreSQL `NUMERIC`; API uses string values for decimal quantities/prices.
-- Direct purchase stock changes use inventory locking + movement ledger.
-- `total_amount` for direct purchase items is PostgreSQL-generated from qty × unit price.
-- Original procurement gross/net values remain historical and unchanged by later production increases.
+- Authentication is not implemented; `submitted_by` and `approver_id` temporarily come from request bodies.
+- Quantities remain PostgreSQL `NUMERIC`; API decimal quantities are strings.
+- Approval history is retained across revisions; old entity versions simply stop counting toward current approval.
+- Usage application consumes scheduled-menu reservations after applying actual stock usage.
+- Zero actual usage creates no stock movement but still consumes the reservation for that scheduled-menu/material.
+- Negative stock is prevented both by row locking and an atomic `qty >= subtract_qty` SQL predicate.
 
 ## Validation Status
-GREEN through GitHub Actions run #44.
+Previous stable batch: GREEN through GitHub Actions run #44.
 
-Validated checks:
+Material usage batch: latest CI run pending/in progress. Canonical checks:
 - PostgreSQL 17 startup
 - Goose migration up
 - rollback-to-zero
@@ -67,18 +71,18 @@ Validated checks:
 - generated sqlc synchronization
 
 ## In Progress
-- Prepare material usage schema and dual-approval application flow.
+- Resolve any generated-type/compile issue from material usage until CI is green.
 
 ## Next
-1. Implement `000008_material_usage.sql`.
-2. Add actual material usage draft/submit flow.
-3. Add Chef + Accountant versioned approvals.
-4. Apply stock OUT only after both approvals for the current version.
-5. Consume/release associated active reservations when approved usage is applied.
-6. Enforce negative-stock rejection atomically.
+1. Get material usage batch green.
+2. Implement `000009_stock_opname.sql`.
+3. Add post-production physical stock capture and server-calculated difference.
+4. Create adjustment request only when a difference exists; do not auto-change stock.
+5. Add Chef + Accountant versioned approval for stock adjustment.
+6. Apply approved `ADJUSTMENT_IN` / `ADJUSTMENT_OUT` atomically with negative-stock protection.
 7. Add focused concurrency/transaction tests.
 8. Add menu-template update flow without mutating historical scheduled-menu snapshots.
-9. Continue to stock opname and dual-approved adjustment after usage is stable.
+9. Add authentication/RBAC after core inventory cycle is complete.
 
 ## Blockers / TBD
 - `KEPALA_SPPG` operational permissions remain TBD.
@@ -87,23 +91,24 @@ Validated checks:
 - No application payment workflow is required.
 
 ## Latest Decisions
-- Vendor/source is transaction data, not master data.
-- SHORTAGE uses cumulative remaining shortage and cannot exceed it.
-- Fully covered shortage produces `FULFILLED`.
-- ADDITIONAL_REQUIREMENT quantities are server-calculated from snapshot recipe and delta portions.
-- Additional requirements do not mutate the original procurement snapshot.
-- All positive direct-purchase quantities enter stock atomically with a stock movement.
-- GitHub Actions is the canonical executable validation environment.
+- Material usage is one versioned lifecycle per scheduled menu.
+- Planned usage follows effective portions, including additional requirements.
+- Usage requires both Chef and Accountant approval for the same entity version.
+- Revision preserves old approvals but invalidates them by incrementing version.
+- Rejection returns usage to `NEEDS_REVISION` without inventory effects.
+- Second valid approval, stock OUT, ledger movement, reservation consumption, and final approval status are atomic.
+- Negative stock is prohibited.
+- GitHub Actions remains the canonical executable validation environment.
 
 ## Changed Files (Latest Batch)
-- `migrations/000007_create_direct_purchase.sql`
+- `migrations/000008_create_material_usage.sql`
+- `internal/database/query/foundation.sql`
 - `internal/database/query/menu.sql`
-- `internal/database/query/direct_purchase.sql`
-- `internal/database/generated/*`
+- `internal/database/query/inventory.sql`
+- `internal/database/query/material_usage.sql`
 - `internal/repository/store.go`
-- `internal/service/direct_purchase_service.go`
-- `internal/handler/http/direct_purchase_handler.go`
-- `internal/handler/http/core_handler.go`
+- `internal/service/material_usage_service.go`
+- `internal/handler/http/material_usage_handler.go`
 - `cmd/api/main.go`
 - `docs/api.md`
 - `docs/database.md`
