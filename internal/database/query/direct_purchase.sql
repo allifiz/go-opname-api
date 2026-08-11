@@ -21,6 +21,26 @@ JOIN purchase_orders po ON po.id = poi.purchase_order_id
 WHERE poi.id = $1
 FOR UPDATE OF poi;
 
+-- name: GetRemainingShortageByPOItem :one
+SELECT GREATEST(
+    poi.ordered_qty
+    - COALESCE((
+        SELECT SUM(ri.received_qty)
+        FROM receipt_items ri
+        WHERE ri.purchase_order_item_id = poi.id
+    ), 0)
+    - COALESCE((
+        SELECT SUM(dpi.qty)
+        FROM direct_purchase_items dpi
+        JOIN direct_purchases dp ON dp.id = dpi.direct_purchase_id
+        WHERE dpi.purchase_order_item_id = poi.id
+          AND dp.purchase_type = 'SHORTAGE'
+    ), 0),
+    0
+)::NUMERIC(18,4) AS remaining_shortage_qty
+FROM purchase_order_items poi
+WHERE poi.id = $1;
+
 -- name: CreateAdditionalRequirement :one
 INSERT INTO additional_requirements (
     scheduled_menu_id,
