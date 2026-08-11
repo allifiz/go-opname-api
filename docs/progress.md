@@ -1,7 +1,7 @@
 # Project Progress
 
 ## Current Phase
-Core inventory V1 is implemented and green through stock opname and dual-approved stock adjustment. Concurrency hardening now covers receiving, usage approval, adjustment approval, stock-out competition, reservation allocation, and shortage direct purchase.
+Core inventory V1 is implemented and green through stock opname and dual-approved stock adjustment. Concurrency hardening is green for receiving, usage approval, adjustment approval, stock-out competition, reservation allocation, and shortage direct purchase. Next focus is authentication/JWT + RBAC.
 
 ## Last Updated
 2026-08-12
@@ -20,8 +20,9 @@ Core inventory V1 is implemented and green through stock opname and dual-approve
 - Concurrent Chef + Accountant stock-adjustment approvals are covered and apply adjustment movement exactly once.
 - Competing conditional stock OUT is covered: when stock only satisfies one request, exactly one decrement succeeds and stock never becomes negative.
 - GitHub Actions run #63 passed migration up, rollback/re-apply, `sqlc generate`, all initial integration/concurrency tests via `go test ./...`, build, and generated-code synchronization.
-- Added concurrent procurement stock-check coverage across two scheduled menus competing for the same physical material stock. The test requires active reservations never to exceed actual stock and aggregate net procurement to absorb the unavailable allocation.
-- Added concurrent `SHORTAGE` direct-purchase coverage for two requests competing for the same remaining shortage. PO-item locking must allow only the quantity that fits the remaining shortage; the competing excess request must fail without adding stock or purchase quantity.
+- Concurrent procurement stock-check coverage across two scheduled menus competing for the same physical material stock is implemented. Active reservations cannot exceed real stock; unavailable allocation becomes net procurement.
+- Concurrent `SHORTAGE` direct-purchase coverage is implemented. Two requests competing for the same remaining shortage serialize on the PO item; only the quantity that fits may commit, and the excess request fails without adding stock or purchase quantity.
+- GitHub Actions run #64 passed migration up, rollback/re-apply, `sqlc generate`, all PostgreSQL integration/concurrency tests, `go build ./...`, and generated-code synchronization.
 
 ## Implemented Migrations
 - `000001_create_foundation.sql`
@@ -35,11 +36,9 @@ Core inventory V1 is implemented and green through stock opname and dual-approve
 - `000009_create_stock_opname.sql`
 
 ## Validation Status
-Previously GREEN through GitHub Actions run #63.
+GREEN through GitHub Actions run #64.
 
-Reservation + shortage race hardening batch is awaiting the latest GitHub Actions result.
-
-Canonical checks:
+Validated checks:
 - PostgreSQL 17 startup
 - Goose migration up
 - rollback-to-zero
@@ -50,8 +49,8 @@ Canonical checks:
 - generated sqlc synchronization
 
 ## Next
-1. Get reservation/shortage concurrency hardening green and fix any race surfaced by CI.
-2. Implement authentication/JWT and RBAC so audit user IDs no longer come from request bodies.
+1. Implement authentication/JWT and RBAC so audit user IDs no longer come from request bodies.
+2. Add authentication/RBAC integration tests and role-denial coverage.
 3. Add menu-template update flow without mutating historical scheduled-menu snapshots.
 4. Add OpenAPI/Swagger and consistent response/error contracts.
 5. Add pagination/filtering where list volume can grow.
