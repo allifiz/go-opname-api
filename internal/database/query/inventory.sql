@@ -11,6 +11,14 @@ JOIN materials m ON m.id = ms.material_id
 JOIN units u ON u.id = ms.unit_id
 WHERE ms.material_id = $1;
 
+-- name: EnsureMaterialStock :exec
+INSERT INTO material_stocks (
+    material_id,
+    qty,
+    unit_id
+) VALUES ($1, 0, $2)
+ON CONFLICT (material_id) DO NOTHING;
+
 -- name: LockMaterialStock :one
 SELECT material_id, qty, unit_id, updated_at
 FROM material_stocks
@@ -36,6 +44,51 @@ FROM stock_reservations
 WHERE material_id = $1
   AND status = 'ACTIVE';
 
+-- name: GetProcurementStockAvailability :one
+SELECT
+    ms.qty::NUMERIC(18,4) AS existing_stock_qty,
+    COALESCE((
+        SELECT SUM(sr.qty)
+        FROM stock_reservations sr
+        WHERE sr.material_id = ms.material_id
+          AND sr.status = 'ACTIVE'
+    ), 0)::NUMERIC(18,4) AS reserved_stock_qty,
+    GREATEST(
+        ms.qty - COALESCE((
+            SELECT SUM(sr.qty)
+            FROM stock_reservations sr
+            WHERE sr.material_id = ms.material_id
+              AND sr.status = 'ACTIVE'
+        ), 0),
+        0
+    )::NUMERIC(18,4) AS available_stock_qty,
+    LEAST(
+        sqlc.arg(gross_requirement_qty)::NUMERIC,
+        GREATEST(
+            ms.qty - COALESCE((
+                SELECT SUM(sr.qty)
+                FROM stock_reservations sr
+                WHERE sr.material_id = ms.material_id
+                  AND sr.status = 'ACTIVE'
+            ), 0),
+            0
+        )
+    )::NUMERIC(18,4) AS allocation_qty,
+    GREATEST(
+        sqlc.arg(gross_requirement_qty)::NUMERIC - GREATEST(
+            ms.qty - COALESCE((
+                SELECT SUM(sr.qty)
+                FROM stock_reservations sr
+                WHERE sr.material_id = ms.material_id
+                  AND sr.status = 'ACTIVE'
+            ), 0),
+            0
+        ),
+        0
+    )::NUMERIC(18,4) AS net_procurement_qty
+FROM material_stocks ms
+WHERE ms.material_id = sqlc.arg(material_id);
+
 -- name: CreateStockReservation :one
 INSERT INTO stock_reservations (
     scheduled_menu_id,
@@ -58,6 +111,13 @@ FROM stock_reservations
 WHERE material_id = $1
   AND status = 'ACTIVE'
 ORDER BY reserved_at ASC;
+
+-- name: ListStockReservationsByProcurementRequest :many
+SELECT sr.*
+FROM stock_reservations sr
+JOIN procurement_request_items pri ON pri.id = sr.procurement_request_item_id
+WHERE pri.procurement_request_id = $1
+ORDER BY sr.reserved_at ASC;
 
 -- name: ReleaseStockReservation :one
 UPDATE stock_reservations
