@@ -11,7 +11,7 @@
 000006_create_receiving.sql              IMPLEMENTED
 000007_create_direct_purchase.sql        IMPLEMENTED
 000008_create_material_usage.sql         IMPLEMENTED
-000009_stock_opname.sql                  NEXT
+000009_create_stock_opname.sql           IMPLEMENTED
 ```
 
 ## General Conventions
@@ -23,64 +23,66 @@
 - Negative stock is forbidden.
 - Real inventory changes must be represented in `stock_movements`.
 
-## Foundation / Menu / Procurement / Receiving / Direct Purchase
-Foundation, reusable menu templates, scheduled-menu snapshots, stock reservations, procurement requests, PO generation, H-1 cancellation, cumulative receiving, and direct purchase are implemented.
+## Implemented Core Flow
+Foundation, reusable menu templates, scheduled snapshots, stock reservations, procurement, PO/H-1, receiving, direct purchase, material usage, and stock opname/adjustment are implemented.
 
-Procurement allocation remains:
-```text
-active_reserved_stock = SUM(ACTIVE reservation qty)
-available_stock = MAX(current_stock - active_reserved_stock, 0)
-allocation_qty = MIN(gross_requirement, available_stock)
-net_procurement = MAX(gross_requirement - available_stock, 0)
-```
+## Material Usage
+Usage is versioned and requires Chef + Accountant approval for the same current version before stock OUT. The second approval transaction applies stock decrement, `OUT / MATERIAL_USAGE` movements, reservation consumption, and final approval atomically.
 
-Receiving supports cumulative receipt quantities. Direct purchase supports `SHORTAGE` and `ADDITIONAL_REQUIREMENT`, both applying stock `IN` atomically with ledger movements.
+## 000009 Stock Opname
 
-## 000008 Material Usage
+### stock_opname_status
+- `DRAFT`
+- `MATCHED`
+- `DIFFERENCE_FOUND`
+- `WAITING_ADJUSTMENT_APPROVAL`
+- `COMPLETED`
 
-### material_usage_status
+### stock_opnames
+One record per scheduled menu in V1.
+
+Important fields:
+- `scheduled_menu_id UNIQUE`
+- `opname_date`
+- `performed_by`
+- `status`
+- timestamps
+
+### stock_opname_items
+For each scheduled-menu material:
+- `system_qty NUMERIC(18,4) >= 0`
+- `physical_qty NUMERIC(18,4) >= 0`
+- generated `difference_qty = physical_qty - system_qty`
+- `unit_id`
+
+`system_qty` is captured from the locked current `material_stocks` row. Client controls only physical count and, when needed, adjustment reason.
+
+A material is unique per opname.
+
+### stock_adjustment_status
 - `DRAFT`
 - `WAITING_APPROVAL`
 - `APPROVED`
 - `NEEDS_REVISION`
 
-### material_usages
-One material-usage lifecycle exists per scheduled menu.
+### stock_adjustments
+A stock adjustment exists only for a non-zero opname difference.
 
-Important fields:
-- `scheduled_menu_id UNIQUE`
-- `usage_date`
+Fields:
+- `stock_opname_item_id UNIQUE`
+- `material_id`
+- `adjustment_qty <> 0`
+- `reason`
 - `submitted_by`
 - `status`
 - `version > 0`
 - `submitted_at`
-- `applied_at`
 - timestamps
 
-`version` is monotonically incremented whenever editable usage data is revised. Historical approvals are never deleted.
+`adjustment_qty` is server-derived from the opname item's generated `difference_qty`; it is not accepted directly from the client.
 
-### material_usage_items
-Fields:
-- `material_usage_id`
-- `material_id`
-- `planned_qty >= 0`
-- `actual_qty >= 0`
-- `unit_id`
-
-A material is unique per usage.
-
-`planned_qty` is server-derived from the scheduled-menu snapshot and the latest effective portion count:
-
-```text
-effective_portions = latest additional_requirements.new_portions
-                     OR scheduled_menus.planned_portions
-planned_qty(material) = SUM(snapshot qty_per_portion * effective_portions)
-```
-
-The client controls only `actual_qty`, not `planned_qty`.
-
-### material_usage_approvals
-Approver roles:
+### stock_adjustment_approvals
+Roles:
 - `CHEF`
 - `AKUNTAN`
 
@@ -88,73 +90,74 @@ Decisions:
 - `APPROVED`
 - `REJECTED`
 
-Important fields:
-- `material_usage_id`
-- `approver_role`
-- `approver_id`
-- `entity_version`
-- `status`
-- `note`
-- `decided_at`
-
-Unique constraint:
+Unique key:
 ```text
-(material_usage_id, approver_role, entity_version)
+(stock_adjustment_id, approver_role, entity_version)
 ```
 
-This guarantees at most one Chef decision and one Accountant decision for one usage version.
+Historical approvals are retained across revisions. Only approvals matching the current adjustment version count.
 
-## Revision / Approval Semantics
-
-Editable states:
-- `DRAFT`
-- `NEEDS_REVISION`
-
-A revision:
-1. locks the usage row;
-2. increments `version`;
-3. resets status to `DRAFT`;
-4. clears submission/application timestamps;
-5. replaces current usage-item rows;
-6. preserves all previous approval rows as immutable history.
-
-Only approvals whose `entity_version` equals the current usage `version` count toward final approval.
-
-A rejection while `WAITING_APPROVAL` changes status to `NEEDS_REVISION` and does not change stock.
-
-## Dual Approval + Stock OUT Transaction
-
-The second valid approval for the current version triggers application in the same transaction:
+## Opname Creation Transaction
 
 ```text
-lock material_usage
-validate WAITING_APPROVAL
-validate approver is active CHEF or AKUNTAN
-insert versioned approval
-count current-version approved roles
-if only one role approved:
-    commit approval only
-if both roles approved:
-    for each usage item:
-        ensure material_stocks row
-        lock material_stocks row
-        require stock >= actual_qty
-        decrement stock
-        create OUT / MATERIAL_USAGE stock movement
-        consume ACTIVE reservations for scheduled menu + material
-    mark material_usage APPROVED + applied_at
+validate one opname per scheduled menu
+resolve scheduled-menu material set
+for each material:
+    ensure material_stocks row
+    lock material_stocks row
+    snapshot system_qty
+    persist physical_qty
+    PostgreSQL generates difference_qty
+    if difference != 0:
+        require reason
+        create DRAFT stock_adjustment using difference_qty
+set opname MATCHED or DIFFERENCE_FOUND
 commit
 ```
 
-If any material lacks sufficient stock, the entire second-approval transaction rolls back. This means the second approval row, all stock decrements, all movements, reservation consumption, and final `APPROVED` status are all rejected together.
+No stock is changed during this transaction.
 
-Zero actual usage creates no stock movement but still consumes the associated active reservation because the scheduled production allocation is complete for that material.
+## Adjustment Revision
+Only `DRAFT` or `NEEDS_REVISION` may be edited.
 
-## Inventory Queries Added for Usage
-- `DecreaseMaterialStockIfSufficient`
-- `ConsumeActiveReservationsByScheduledMenuMaterial`
+Revision changes physical count rather than allowing a client-controlled adjustment number:
+```text
+lock adjustment + opname item
+update physical_qty
+recalculate generated difference_qty
+require difference remains non-zero
+copy difference into adjustment_qty
+increment version
+reset adjustment to DRAFT
+keep older approvals as history
+```
 
-`DecreaseMaterialStockIfSufficient` includes `qty >= subtract_qty` in the SQL predicate, so negative stock cannot be created even under concurrent operations.
+## Dual Approval + Adjustment Transaction
+The second current-version approval applies inventory in the same transaction:
+
+```text
+lock stock_adjustment
+validate WAITING_APPROVAL
+validate active CHEF / AKUNTAN approver
+insert versioned approval
+if fewer than two current-version approvals:
+    commit approval only
+else:
+    ensure + lock material_stocks
+    if adjustment_qty > 0:
+        increase stock
+        create ADJUSTMENT_IN / STOCK_ADJUSTMENT movement
+    if adjustment_qty < 0:
+        require current stock >= abs(adjustment_qty)
+        decrease stock
+        create ADJUSTMENT_OUT / STOCK_ADJUSTMENT movement
+    mark adjustment APPROVED
+    if all opname adjustments are APPROVED:
+        mark stock_opname COMPLETED
+commit
+```
+
+If an `ADJUSTMENT_OUT` would make stock negative, the second approval and every inventory effect in that transaction roll back.
 
 ## sqlc Query Files
 Implemented:
@@ -165,15 +168,7 @@ Implemented:
 - `internal/database/query/receiving.sql`
 - `internal/database/query/direct_purchase.sql`
 - `internal/database/query/material_usage.sql`
-
-## Next: Stock Opname
-Planned `000009_stock_opname.sql`:
-- stock-opname header/items;
-- system vs physical quantity snapshot;
-- server-calculated difference;
-- no automatic stock correction;
-- versioned Chef + Accountant approval for adjustment;
-- approved adjustment creates `ADJUSTMENT_IN` or `ADJUSTMENT_OUT` movement atomically.
+- `internal/database/query/stock_opname.sql`
 
 ## Important Transaction Rules
 - Procurement stock check + reservation: atomic with stock row lock.
@@ -182,4 +177,4 @@ Planned `000009_stock_opname.sql`:
 - SHORTAGE purchase + stock IN: atomic with PO-item lock.
 - ADDITIONAL_REQUIREMENT + stock IN: atomic with scheduled-menu lock.
 - Dual-approved material usage + stock OUT + reservation consumption: atomic.
-- Approved stock adjustment + movement: planned atomic operation.
+- Dual-approved stock adjustment + movement: atomic with negative-stock protection.
