@@ -44,6 +44,19 @@ FROM stock_reservations
 WHERE material_id = $1
   AND status = 'ACTIVE';
 
+-- name: GetUnreservedStockByMaterial :one
+SELECT GREATEST(
+    ms.qty - COALESCE((
+        SELECT SUM(sr.qty)
+        FROM stock_reservations sr
+        WHERE sr.material_id = ms.material_id
+          AND sr.status = 'ACTIVE'
+    ), 0),
+    0
+)::NUMERIC(18,4) AS available_stock_qty
+FROM material_stocks ms
+WHERE ms.material_id = $1;
+
 -- name: GetProcurementStockAvailability :one
 SELECT
     ms.qty::NUMERIC(18,4) AS existing_stock_qty,
