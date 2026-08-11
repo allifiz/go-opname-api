@@ -9,11 +9,19 @@
 - sqlc
 - Air for local hot reload
 - GitHub Actions for executable validation
+- JWT HS256 for API authentication
+- bcrypt for password verification
 
 ## Application Flow
 Use a pragmatic layered structure:
 
 ```text
+HTTP Request
+    ↓
+JWT Authentication Middleware
+    ↓
+RBAC Guard
+    ↓
 HTTP Handler
     ↓
 Service
@@ -25,7 +33,7 @@ sqlc / pgx
 PostgreSQL
 ```
 
-Avoid unnecessary architecture layers unless a real requirement appears. The objective is explicit business logic, predictable transactions, and testable boundaries.
+Avoid unnecessary architecture layers unless a real requirement appears. The objective is explicit business logic, predictable transactions, testable boundaries, and authentication/authorization enforced before business handlers execute.
 
 ## Repository Layout
 
@@ -41,22 +49,48 @@ internal/
 │   ├── query/           # sqlc SQL queries
 │   └── postgres.go
 ├── domain/
-│   ├── auth/
-│   ├── material/
-│   ├── menu/
-│   ├── procurement/
-│   ├── receiving/
-│   ├── directpurchase/
-│   ├── inventory/
-│   ├── usage/
-│   └── stockopname/
 ├── repository/
 ├── service/
-├── handler/
-│   ├── http/
-│   └── middleware/
-└── router/
+└── handler/
+    └── http/
 ```
+
+## Authentication and Authorization
+
+Authentication uses the existing `users` and `roles` tables. No auth-specific migration is required.
+
+Login flow:
+
+```text
+POST /api/v1/auth/login
+    ↓
+lookup active user by email
+    ↓
+bcrypt password verification
+    ↓
+issue HS256 JWT (8-hour expiry)
+```
+
+JWT claims contain:
+- user UUID in `sub`
+- role code
+- email
+- expiry
+
+`JWT_SECRET` is required at application startup and must contain at least 32 characters.
+
+`GET /health` and login are public. Every other `/api/v1` route passes through authentication middleware. The middleware validates JWT signature and expiry, then places the actor ID, role, and email in Fiber locals.
+
+RBAC runs at the HTTP boundary before the business handler. Operational actor fields that previously came from request bodies are overwritten from the authenticated JWT identity. Services continue to validate role-sensitive approval identity against database users where that validation is part of the domain transaction.
+
+Current write-role mapping:
+- Ahli Gizi: period/menu/scheduled-menu writes.
+- Ahli Gizi or Pengawas Bahan Baku: material writes.
+- Pengawas Bahan Baku: procurement operations, receiving, direct purchase, usage entry/submission, opname and adjustment entry/submission.
+- Akuntan: procurement verify/reject.
+- Chef or Akuntan: usage and stock-adjustment decisions.
+
+No public default user/password is seeded. Initial user provisioning remains a separate secure operational concern.
 
 ## Continuous Validation
 GitHub Actions is the canonical executable validation environment for repository changes that need external tooling or PostgreSQL.
@@ -81,11 +115,9 @@ CI performs:
 6. Roll migrations back to version 0.
 7. Apply all migrations again.
 8. Run `sqlc generate`.
-9. Run `go test ./...`.
+9. Run `go test ./...` including PostgreSQL integration, concurrency, and authentication tests.
 10. Run `go build ./...`.
 11. Commit regenerated `internal/database/generated` files back to `main` when sqlc output changes.
-
-The first complete validation passed on 2026-08-11 after CI tooling compatibility was corrected.
 
 ## Key Domain Principles
 
