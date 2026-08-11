@@ -1,7 +1,7 @@
 # Project Progress
 
 ## Current Phase
-Procurement stock-check and reservation are complete. Purchase-order generation and H-1 item cancellation are implemented and awaiting final CI confirmation.
+Procurement stock-check, PO generation, and H-1 item cancellation are implemented and green in GitHub Actions. Next focus is receiving.
 
 ## Last Updated
 2026-08-12
@@ -28,7 +28,8 @@ Procurement stock-check and reservation are complete. Purchase-order generation 
 - H-1 cancellation locks the PO item and material stock, verifies currently-unreserved stock, creates replacement reservation, then cancels the PO item.
 - H-1 cancellation reason is `EXISTING_STOCK_SUFFICIENT`.
 - Insufficient replacement stock maps to HTTP `422`; missed cancellation deadline / invalid state maps to `409`.
-- GitHub Actions remains the canonical executable validation environment.
+- CI auto-generated sqlc push now rebases onto current `main` before pushing, preventing non-fast-forward failures when docs or other commits land during the run.
+- PO/H-1 batch passed GitHub Actions run #25: migration up, rollback-to-zero, re-apply, `sqlc generate`, `go test ./...`, `go build ./...`, and generated-code commit all succeeded.
 
 ## Implemented Migrations
 - `migrations/000001_create_foundation.sql`
@@ -70,20 +71,27 @@ Procurement stock-check and reservation are complete. Purchase-order generation 
 - Purchase orders currently act as the scheduled-menu procurement document and may contain items from different suppliers because supplier identity is intentionally stored per item in V1.
 
 ## Validation Status
-Previous procurement batch: GREEN through GitHub Actions run #17.
+GREEN through GitHub Actions run #25.
 
-Current PO/H-1 batch: CI run pending/being validated. Canonical checks are migration up, rollback-to-zero, re-apply, `sqlc generate`, `go test ./...`, and `go build ./...`.
+Validated checks:
+- PostgreSQL 17 startup.
+- Goose migration `up`.
+- Goose rollback `down-to 0`.
+- Goose migration `up` again.
+- `sqlc generate`.
+- `go test ./...`.
+- `go build ./...`.
+- regenerated sqlc code committed after rebasing onto current `main`.
 
 ## In Progress
-- Finish CI validation of PO generation and H-1 cancellation.
-- Synchronize generated sqlc code after new PO/inventory queries.
+- Prepare receiving schema/application flow.
 
 ## Next
-1. Fix any CI issue in the current PO/H-1 batch until green.
-2. Add receiving schema and application flow next. Because `000005` is now used for PO constraints, receiving begins at `000006_receiving.sql`.
-3. Implement cumulative PO receipt quantities and statuses (`NOT_RECEIVED`, `PARTIAL_RECEIVED`, `RECEIVED`, `OVER_RECEIVED`).
+1. Add `000006_receiving.sql`.
+2. Support multiple receipts per PO item and cumulative vendor receipt quantities.
+3. Implement `NOT_RECEIVED`, `PARTIAL_RECEIVED`, `RECEIVED`, and `OVER_RECEIVED` based on cumulative received quantity.
 4. Apply receipt + stock IN atomically.
-5. Add receipt invoice/supporting-document metadata.
+5. Store invoice/supporting-document metadata for Accountant visibility.
 6. Implement shortage and additional-requirement direct purchases.
 7. Add focused transaction/concurrency tests.
 8. Add menu-template update flow without mutating historical scheduled-menu snapshots.
@@ -109,13 +117,16 @@ Current PO/H-1 batch: CI run pending/being validated. Canonical checks are migra
 - `migrations/000005_purchase_order_constraints.sql`
 - `internal/database/query/procurement.sql`
 - `internal/database/query/inventory.sql`
+- `internal/database/generated/*`
 - `internal/repository/store.go`
 - `internal/service/purchase_order_service.go`
 - `internal/handler/http/core_handler.go`
 - `internal/handler/http/procurement_handler.go`
+- `.github/workflows/ci.yml`
 - `docs/api.md`
+- `docs/database.md`
+- `docs/decisions.md`
 - `docs/progress.md`
-- `docs/database.md` and `docs/decisions.md` must reflect this batch as well.
 
 ## Notes for Next Agent
 Read before changing behavior/schema:
