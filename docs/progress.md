@@ -22,7 +22,13 @@ Foundation, Menu, and Inventory database foundation.
 - Negative stock is rejected.
 - Stock movement ledger is the inventory audit source of truth.
 - Stock reservation concept agreed to prevent existing stock from being allocated twice.
-- Documentation structure established.
+- Repository documentation structure established on `main`:
+  - `docs/progress.md`
+  - `docs/requirements.md`
+  - `docs/architecture.md`
+  - `docs/database.md`
+  - `docs/api.md`
+  - `docs/decisions.md`
 
 ## In Progress
 - Replace starter foundation schema with approved V1 master data.
@@ -53,6 +59,7 @@ Foundation, Menu, and Inventory database foundation.
 - No FIFO or stock-batch tracking in V1.
 - No negative stock.
 - Approval becomes invalid when approved data is revised; resubmission requires fresh approval.
+- Routine development is performed directly on `main` while repository rules permit direct writes.
 
 ## Changed Files
 - `docs/progress.md`
