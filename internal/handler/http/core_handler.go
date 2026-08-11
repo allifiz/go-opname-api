@@ -47,7 +47,10 @@ func respondError(c *fiber.Ctx, err error) error {
 	case errors.Is(err, service.ErrInvalidInput):
 		status = fiber.StatusBadRequest
 		message = err.Error()
-	case errors.Is(err, service.ErrConflict), errors.Is(err, service.ErrInvalidTransition):
+	case errors.Is(err, service.ErrInsufficientStock):
+		status = fiber.StatusUnprocessableEntity
+		message = err.Error()
+	case errors.Is(err, service.ErrConflict), errors.Is(err, service.ErrInvalidTransition), errors.Is(err, service.ErrPOCancelDeadlinePassed):
 		status = fiber.StatusConflict
 		message = err.Error()
 	case errors.As(err, &pgErr) && pgErr.Code == "23505":
