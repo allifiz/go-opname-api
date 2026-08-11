@@ -11,97 +11,277 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type IngredientUnit string
+type ProcurementRequestStatus string
 
 const (
-	IngredientUnitKG    IngredientUnit = "KG"
-	IngredientUnitLITER IngredientUnit = "LITER"
+	ProcurementRequestStatusDRAFT               ProcurementRequestStatus = "DRAFT"
+	ProcurementRequestStatusWAITINGVERIFICATION ProcurementRequestStatus = "WAITING_VERIFICATION"
+	ProcurementRequestStatusVERIFIED            ProcurementRequestStatus = "VERIFIED"
+	ProcurementRequestStatusREJECTED            ProcurementRequestStatus = "REJECTED"
 )
 
-func (e *IngredientUnit) Scan(src interface{}) error {
+func (e *ProcurementRequestStatus) Scan(src interface{}) error {
 	switch s := src.(type) {
 	case []byte:
-		*e = IngredientUnit(s)
+		*e = ProcurementRequestStatus(s)
 	case string:
-		*e = IngredientUnit(s)
+		*e = ProcurementRequestStatus(s)
 	default:
-		return fmt.Errorf("unsupported scan type for IngredientUnit: %T", src)
+		return fmt.Errorf("unsupported scan type for ProcurementRequestStatus: %T", src)
 	}
 	return nil
 }
 
-type NullIngredientUnit struct {
-	IngredientUnit IngredientUnit `json:"ingredient_unit"`
-	Valid          bool           `json:"valid"` // Valid is true if IngredientUnit is not NULL
+type NullProcurementRequestStatus struct {
+	ProcurementRequestStatus ProcurementRequestStatus `json:"procurement_request_status"`
+	Valid                    bool                     `json:"valid"` // Valid is true if ProcurementRequestStatus is not NULL
 }
 
 // Scan implements the Scanner interface.
-func (ns *NullIngredientUnit) Scan(value interface{}) error {
+func (ns *NullProcurementRequestStatus) Scan(value interface{}) error {
 	if value == nil {
-		ns.IngredientUnit, ns.Valid = "", false
+		ns.ProcurementRequestStatus, ns.Valid = "", false
 		return nil
 	}
 	ns.Valid = true
-	return ns.IngredientUnit.Scan(value)
+	return ns.ProcurementRequestStatus.Scan(value)
 }
 
 // Value implements the driver Valuer interface.
-func (ns NullIngredientUnit) Value() (driver.Value, error) {
+func (ns NullProcurementRequestStatus) Value() (driver.Value, error) {
 	if !ns.Valid {
 		return nil, nil
 	}
-	return string(ns.IngredientUnit), nil
+	return string(ns.ProcurementRequestStatus), nil
 }
 
-type UserRole string
+type PurchaseOrderItemStatus string
 
 const (
-	UserRoleCHEF        UserRole = "CHEF"
-	UserRolePROCUREMENT UserRole = "PROCUREMENT"
-	UserRoleWAREHOUSE   UserRole = "WAREHOUSE"
-	UserRoleACCOUNTANT  UserRole = "ACCOUNTANT"
-	UserRoleOWNER       UserRole = "OWNER"
+	PurchaseOrderItemStatusWAITING         PurchaseOrderItemStatus = "WAITING"
+	PurchaseOrderItemStatusCANCELLED       PurchaseOrderItemStatus = "CANCELLED"
+	PurchaseOrderItemStatusNOTRECEIVED     PurchaseOrderItemStatus = "NOT_RECEIVED"
+	PurchaseOrderItemStatusPARTIALRECEIVED PurchaseOrderItemStatus = "PARTIAL_RECEIVED"
+	PurchaseOrderItemStatusRECEIVED        PurchaseOrderItemStatus = "RECEIVED"
+	PurchaseOrderItemStatusOVERRECEIVED    PurchaseOrderItemStatus = "OVER_RECEIVED"
+	PurchaseOrderItemStatusFULFILLED       PurchaseOrderItemStatus = "FULFILLED"
 )
 
-func (e *UserRole) Scan(src interface{}) error {
+func (e *PurchaseOrderItemStatus) Scan(src interface{}) error {
 	switch s := src.(type) {
 	case []byte:
-		*e = UserRole(s)
+		*e = PurchaseOrderItemStatus(s)
 	case string:
-		*e = UserRole(s)
+		*e = PurchaseOrderItemStatus(s)
 	default:
-		return fmt.Errorf("unsupported scan type for UserRole: %T", src)
+		return fmt.Errorf("unsupported scan type for PurchaseOrderItemStatus: %T", src)
 	}
 	return nil
 }
 
-type NullUserRole struct {
-	UserRole UserRole `json:"user_role"`
-	Valid    bool     `json:"valid"` // Valid is true if UserRole is not NULL
+type NullPurchaseOrderItemStatus struct {
+	PurchaseOrderItemStatus PurchaseOrderItemStatus `json:"purchase_order_item_status"`
+	Valid                   bool                    `json:"valid"` // Valid is true if PurchaseOrderItemStatus is not NULL
 }
 
 // Scan implements the Scanner interface.
-func (ns *NullUserRole) Scan(value interface{}) error {
+func (ns *NullPurchaseOrderItemStatus) Scan(value interface{}) error {
 	if value == nil {
-		ns.UserRole, ns.Valid = "", false
+		ns.PurchaseOrderItemStatus, ns.Valid = "", false
 		return nil
 	}
 	ns.Valid = true
-	return ns.UserRole.Scan(value)
+	return ns.PurchaseOrderItemStatus.Scan(value)
 }
 
 // Value implements the driver Valuer interface.
-func (ns NullUserRole) Value() (driver.Value, error) {
+func (ns NullPurchaseOrderItemStatus) Value() (driver.Value, error) {
 	if !ns.Valid {
 		return nil, nil
 	}
-	return string(ns.UserRole), nil
+	return string(ns.PurchaseOrderItemStatus), nil
 }
 
-type Ingredient struct {
+type PurchaseOrderStatus string
+
+const (
+	PurchaseOrderStatusDRAFT             PurchaseOrderStatus = "DRAFT"
+	PurchaseOrderStatusVERIFIED          PurchaseOrderStatus = "VERIFIED"
+	PurchaseOrderStatusPARTIALLYRECEIVED PurchaseOrderStatus = "PARTIALLY_RECEIVED"
+	PurchaseOrderStatusCOMPLETED         PurchaseOrderStatus = "COMPLETED"
+)
+
+func (e *PurchaseOrderStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = PurchaseOrderStatus(s)
+	case string:
+		*e = PurchaseOrderStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for PurchaseOrderStatus: %T", src)
+	}
+	return nil
+}
+
+type NullPurchaseOrderStatus struct {
+	PurchaseOrderStatus PurchaseOrderStatus `json:"purchase_order_status"`
+	Valid               bool                `json:"valid"` // Valid is true if PurchaseOrderStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullPurchaseOrderStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.PurchaseOrderStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.PurchaseOrderStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullPurchaseOrderStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.PurchaseOrderStatus), nil
+}
+
+type StockMovementType string
+
+const (
+	StockMovementTypeIN            StockMovementType = "IN"
+	StockMovementTypeOUT           StockMovementType = "OUT"
+	StockMovementTypeADJUSTMENTIN  StockMovementType = "ADJUSTMENT_IN"
+	StockMovementTypeADJUSTMENTOUT StockMovementType = "ADJUSTMENT_OUT"
+)
+
+func (e *StockMovementType) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = StockMovementType(s)
+	case string:
+		*e = StockMovementType(s)
+	default:
+		return fmt.Errorf("unsupported scan type for StockMovementType: %T", src)
+	}
+	return nil
+}
+
+type NullStockMovementType struct {
+	StockMovementType StockMovementType `json:"stock_movement_type"`
+	Valid             bool              `json:"valid"` // Valid is true if StockMovementType is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullStockMovementType) Scan(value interface{}) error {
+	if value == nil {
+		ns.StockMovementType, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.StockMovementType.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullStockMovementType) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.StockMovementType), nil
+}
+
+type StockReferenceType string
+
+const (
+	StockReferenceTypePORECEIPT             StockReferenceType = "PO_RECEIPT"
+	StockReferenceTypeSHORTAGEPURCHASE      StockReferenceType = "SHORTAGE_PURCHASE"
+	StockReferenceTypeADDITIONALREQUIREMENT StockReferenceType = "ADDITIONAL_REQUIREMENT"
+	StockReferenceTypeMATERIALUSAGE         StockReferenceType = "MATERIAL_USAGE"
+	StockReferenceTypeSTOCKADJUSTMENT       StockReferenceType = "STOCK_ADJUSTMENT"
+)
+
+func (e *StockReferenceType) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = StockReferenceType(s)
+	case string:
+		*e = StockReferenceType(s)
+	default:
+		return fmt.Errorf("unsupported scan type for StockReferenceType: %T", src)
+	}
+	return nil
+}
+
+type NullStockReferenceType struct {
+	StockReferenceType StockReferenceType `json:"stock_reference_type"`
+	Valid              bool               `json:"valid"` // Valid is true if StockReferenceType is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullStockReferenceType) Scan(value interface{}) error {
+	if value == nil {
+		ns.StockReferenceType, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.StockReferenceType.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullStockReferenceType) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.StockReferenceType), nil
+}
+
+type StockReservationStatus string
+
+const (
+	StockReservationStatusACTIVE   StockReservationStatus = "ACTIVE"
+	StockReservationStatusCONSUMED StockReservationStatus = "CONSUMED"
+	StockReservationStatusRELEASED StockReservationStatus = "RELEASED"
+)
+
+func (e *StockReservationStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = StockReservationStatus(s)
+	case string:
+		*e = StockReservationStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for StockReservationStatus: %T", src)
+	}
+	return nil
+}
+
+type NullStockReservationStatus struct {
+	StockReservationStatus StockReservationStatus `json:"stock_reservation_status"`
+	Valid                  bool                   `json:"valid"` // Valid is true if StockReservationStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullStockReservationStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.StockReservationStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.StockReservationStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullStockReservationStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.StockReservationStatus), nil
+}
+
+type Material struct {
 	ID        pgtype.UUID        `json:"id"`
 	Name      string             `json:"name"`
-	Unit      IngredientUnit     `json:"unit"`
+	UnitID    pgtype.UUID        `json:"unit_id"`
 	IsActive  bool               `json:"is_active"`
 	CreatedBy pgtype.UUID        `json:"created_by"`
 	UpdatedBy pgtype.UUID        `json:"updated_by"`
@@ -109,12 +289,192 @@ type Ingredient struct {
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
+type MaterialStock struct {
+	MaterialID pgtype.UUID        `json:"material_id"`
+	Qty        pgtype.Numeric     `json:"qty"`
+	UnitID     pgtype.UUID        `json:"unit_id"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
+type MenuTemplate struct {
+	ID          pgtype.UUID        `json:"id"`
+	Name        string             `json:"name"`
+	Description pgtype.Text        `json:"description"`
+	IsActive    bool               `json:"is_active"`
+	CreatedBy   pgtype.UUID        `json:"created_by"`
+	UpdatedBy   pgtype.UUID        `json:"updated_by"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
+type MenuTemplateComponent struct {
+	ID             pgtype.UUID        `json:"id"`
+	MenuTemplateID pgtype.UUID        `json:"menu_template_id"`
+	Name           string             `json:"name"`
+	SortOrder      int32              `json:"sort_order"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+type MenuTemplateComponentMaterial struct {
+	ID                      pgtype.UUID        `json:"id"`
+	MenuTemplateComponentID pgtype.UUID        `json:"menu_template_component_id"`
+	MaterialID              pgtype.UUID        `json:"material_id"`
+	QtyPerPortion           pgtype.Numeric     `json:"qty_per_portion"`
+	UnitID                  pgtype.UUID        `json:"unit_id"`
+	CreatedAt               pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt               pgtype.Timestamptz `json:"updated_at"`
+}
+
+type Period struct {
+	ID        pgtype.UUID        `json:"id"`
+	Name      string             `json:"name"`
+	StartDate pgtype.Date        `json:"start_date"`
+	EndDate   pgtype.Date        `json:"end_date"`
+	CreatedBy pgtype.UUID        `json:"created_by"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+type ProcurementRequest struct {
+	ID              pgtype.UUID              `json:"id"`
+	ScheduledMenuID pgtype.UUID              `json:"scheduled_menu_id"`
+	Status          ProcurementRequestStatus `json:"status"`
+	CheckedBy       pgtype.UUID              `json:"checked_by"`
+	CheckedAt       pgtype.Timestamptz       `json:"checked_at"`
+	SubmittedAt     pgtype.Timestamptz       `json:"submitted_at"`
+	VerifiedBy      pgtype.UUID              `json:"verified_by"`
+	VerifiedAt      pgtype.Timestamptz       `json:"verified_at"`
+	CreatedAt       pgtype.Timestamptz       `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz       `json:"updated_at"`
+}
+
+type ProcurementRequestItem struct {
+	ID                   pgtype.UUID        `json:"id"`
+	ProcurementRequestID pgtype.UUID        `json:"procurement_request_id"`
+	MaterialID           pgtype.UUID        `json:"material_id"`
+	GrossRequirementQty  pgtype.Numeric     `json:"gross_requirement_qty"`
+	ExistingStockQty     pgtype.Numeric     `json:"existing_stock_qty"`
+	ReservedStockQty     pgtype.Numeric     `json:"reserved_stock_qty"`
+	NetProcurementQty    pgtype.Numeric     `json:"net_procurement_qty"`
+	UnitID               pgtype.UUID        `json:"unit_id"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
+}
+
+type PurchaseOrder struct {
+	ID                   pgtype.UUID         `json:"id"`
+	ProcurementRequestID pgtype.UUID         `json:"procurement_request_id"`
+	ScheduledMenuID      pgtype.UUID         `json:"scheduled_menu_id"`
+	PoNumber             string              `json:"po_number"`
+	DeliveryDate         pgtype.Date         `json:"delivery_date"`
+	Status               PurchaseOrderStatus `json:"status"`
+	CreatedBy            pgtype.UUID         `json:"created_by"`
+	CreatedAt            pgtype.Timestamptz  `json:"created_at"`
+	UpdatedAt            pgtype.Timestamptz  `json:"updated_at"`
+}
+
+type PurchaseOrderItem struct {
+	ID                       pgtype.UUID             `json:"id"`
+	PurchaseOrderID          pgtype.UUID             `json:"purchase_order_id"`
+	ProcurementRequestItemID pgtype.UUID             `json:"procurement_request_item_id"`
+	MaterialID               pgtype.UUID             `json:"material_id"`
+	OrderedQty               pgtype.Numeric          `json:"ordered_qty"`
+	UnitID                   pgtype.UUID             `json:"unit_id"`
+	AgreedUnitPrice          pgtype.Numeric          `json:"agreed_unit_price"`
+	SupplierName             string                  `json:"supplier_name"`
+	Status                   PurchaseOrderItemStatus `json:"status"`
+	CancelledAt              pgtype.Timestamptz      `json:"cancelled_at"`
+	CancelledBy              pgtype.UUID             `json:"cancelled_by"`
+	CancelReason             pgtype.Text             `json:"cancel_reason"`
+	CreatedAt                pgtype.Timestamptz      `json:"created_at"`
+	UpdatedAt                pgtype.Timestamptz      `json:"updated_at"`
+}
+
+type Role struct {
+	ID        pgtype.UUID        `json:"id"`
+	Code      string             `json:"code"`
+	Name      string             `json:"name"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+type ScheduledMenu struct {
+	ID              pgtype.UUID        `json:"id"`
+	PeriodID        pgtype.UUID        `json:"period_id"`
+	MenuTemplateID  pgtype.UUID        `json:"menu_template_id"`
+	MenuDate        pgtype.Date        `json:"menu_date"`
+	PlannedPortions int32              `json:"planned_portions"`
+	CreatedBy       pgtype.UUID        `json:"created_by"`
+	UpdatedBy       pgtype.UUID        `json:"updated_by"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+}
+
+type ScheduledMenuComponent struct {
+	ID                        pgtype.UUID        `json:"id"`
+	ScheduledMenuID           pgtype.UUID        `json:"scheduled_menu_id"`
+	SourceTemplateComponentID pgtype.UUID        `json:"source_template_component_id"`
+	Name                      string             `json:"name"`
+	SortOrder                 int32              `json:"sort_order"`
+	CreatedAt                 pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt                 pgtype.Timestamptz `json:"updated_at"`
+}
+
+type ScheduledMenuComponentMaterial struct {
+	ID                       pgtype.UUID        `json:"id"`
+	ScheduledMenuComponentID pgtype.UUID        `json:"scheduled_menu_component_id"`
+	SourceTemplateMaterialID pgtype.UUID        `json:"source_template_material_id"`
+	MaterialID               pgtype.UUID        `json:"material_id"`
+	QtyPerPortion            pgtype.Numeric     `json:"qty_per_portion"`
+	UnitID                   pgtype.UUID        `json:"unit_id"`
+	CreatedAt                pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt                pgtype.Timestamptz `json:"updated_at"`
+}
+
+type StockMovement struct {
+	ID            pgtype.UUID        `json:"id"`
+	MaterialID    pgtype.UUID        `json:"material_id"`
+	MovementType  StockMovementType  `json:"movement_type"`
+	ReferenceType StockReferenceType `json:"reference_type"`
+	ReferenceID   pgtype.UUID        `json:"reference_id"`
+	Qty           pgtype.Numeric     `json:"qty"`
+	UnitID        pgtype.UUID        `json:"unit_id"`
+	MovementDate  pgtype.Timestamptz `json:"movement_date"`
+	CreatedBy     pgtype.UUID        `json:"created_by"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+}
+
+type StockReservation struct {
+	ID                       pgtype.UUID            `json:"id"`
+	ScheduledMenuID          pgtype.UUID            `json:"scheduled_menu_id"`
+	ProcurementRequestItemID pgtype.UUID            `json:"procurement_request_item_id"`
+	MaterialID               pgtype.UUID            `json:"material_id"`
+	Qty                      pgtype.Numeric         `json:"qty"`
+	UnitID                   pgtype.UUID            `json:"unit_id"`
+	Status                   StockReservationStatus `json:"status"`
+	ReservedAt               pgtype.Timestamptz     `json:"reserved_at"`
+	ReleasedAt               pgtype.Timestamptz     `json:"released_at"`
+	ConsumedAt               pgtype.Timestamptz     `json:"consumed_at"`
+	CreatedBy                pgtype.UUID            `json:"created_by"`
+	CreatedAt                pgtype.Timestamptz     `json:"created_at"`
+	UpdatedAt                pgtype.Timestamptz     `json:"updated_at"`
+}
+
+type Unit struct {
+	ID        pgtype.UUID        `json:"id"`
+	Code      string             `json:"code"`
+	Name      string             `json:"name"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
 type User struct {
 	ID           pgtype.UUID        `json:"id"`
+	RoleID       pgtype.UUID        `json:"role_id"`
 	Name         string             `json:"name"`
 	Email        string             `json:"email"`
 	PasswordHash string             `json:"password_hash"`
-	Role         UserRole           `json:"role"`
 	IsActive     bool               `json:"is_active"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
