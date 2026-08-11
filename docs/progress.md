@@ -1,7 +1,7 @@
 # Project Progress
 
 ## Current Phase
-Core inventory V1 is implemented through stock opname and dual-approved stock adjustment. Latest stock-opname CI validation is in progress.
+Core inventory V1 is implemented and green through stock opname and dual-approved stock adjustment. Next phase is hardening and platform readiness.
 
 ## Last Updated
 2026-08-12
@@ -12,9 +12,8 @@ Core inventory V1 is implemented through stock opname and dual-approved stock ad
 - The approved `rapat` document remains read-only business-flow reference.
 
 ## Completed
-- Foundation, menu, inventory, procurement, PO, H-1 cancellation, receiving, direct purchase, and material usage implemented.
-- Material usage batch is green through GitHub Actions run #55.
-- `000009_create_stock_opname.sql` added.
+- Foundation, menu, inventory, procurement, PO, H-1 cancellation, receiving, direct purchase, material usage, stock opname, and stock adjustment implemented.
+- `000009_create_stock_opname.sql` implemented.
 - Stock opname is unique per scheduled menu and snapshots current `material_stocks.qty` as `system_qty`.
 - Opname input material set must exactly match the scheduled-menu material set in V1.
 - `difference_qty` is PostgreSQL-generated as `physical_qty - system_qty`.
@@ -28,6 +27,7 @@ Core inventory V1 is implemented through stock opname and dual-approved stock ad
 - `ADJUSTMENT_OUT` uses row locking + sufficient-stock predicate, so negative stock is rejected atomically.
 - Stock opname becomes `COMPLETED` after all differing-item adjustments are approved.
 - Stock opname HTTP routes are wired in `cmd/api/main.go`.
+- Stock opname batch passed GitHub Actions run #62: migrations, rollback/re-apply, `sqlc generate`, `go test ./...`, `go build ./...`, and generated-code synchronization all succeeded.
 
 ## Implemented Migrations
 - `000001_create_foundation.sql`
@@ -51,9 +51,9 @@ Core inventory V1 is implemented through stock opname and dual-approved stock ad
 Existing endpoints remain documented in `docs/api.md`.
 
 ## Validation Status
-Previous stable batch: GREEN through GitHub Actions run #55.
+GREEN through GitHub Actions run #62.
 
-Stock opname batch: latest CI run in progress. Canonical checks remain:
+Validated checks:
 - PostgreSQL 17 startup
 - Goose migration up
 - rollback-to-zero
@@ -63,7 +63,7 @@ Stock opname batch: latest CI run in progress. Canonical checks remain:
 - `go build ./...`
 - generated sqlc synchronization
 
-## Next After Core V1 Is Green
+## Next
 1. Add focused transaction/concurrency integration tests for reservation, receipt, usage, and adjustment races.
 2. Implement authentication/JWT and RBAC so audit user IDs no longer come from request bodies.
 3. Add menu-template update flow without mutating historical scheduled-menu snapshots.
