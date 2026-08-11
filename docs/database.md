@@ -94,6 +94,14 @@ Snapshot rows copied from a template and independently editable.
 ### scheduled_menu_component_materials
 Snapshot material rows. `source_template_material_id` only preserves origin linkage and does not make history depend on the current template.
 
+Gross procurement requirements are calculated from the scheduled snapshot, not from the current template:
+
+```text
+gross_requirement(material) = SUM(qty_per_portion * planned_portions)
+```
+
+The query groups repeated occurrences of the same material/unit across menu components into one gross requirement.
+
 ## 000003 Inventory
 
 ### material_stocks
@@ -103,6 +111,8 @@ Constraint:
 - `qty >= 0`
 
 The audit source of truth remains `stock_movements`.
+
+A zero stock row is created on demand by the procurement stock-check transaction when a material has never had inventory before. The row is then locked before reservation calculations.
 
 ### stock_movements
 Movement enum:
@@ -146,30 +156,34 @@ Statuses:
 
 Fields preserve stock-check and verification audit timestamps/users. A `VERIFIED` row requires both `verified_by` and `verified_at`.
 
+`scheduled_menu_id` is unique. One scheduled menu has one procurement-request lifecycle; rejected requests are revised/resubmitted instead of duplicated.
+
 ### procurement_request_items
 Preserved separately:
-- `gross_requirement_qty`
-- `existing_stock_qty`
-- `reserved_stock_qty`
-- `net_procurement_qty`
+- `gross_requirement_qty`: production requirement from the scheduled-menu snapshot.
+- `existing_stock_qty`: current material stock captured during the stock check.
+- `reserved_stock_qty`: quantity already reserved by other active reservations before this request allocates stock.
+- `net_procurement_qty`: quantity that still needs purchasing.
 
 All quantity values must be non-negative and `net_procurement_qty <= gross_requirement_qty`.
 
 A material may appear only once in one procurement request.
 
-Business calculation performed transactionally by the service layer:
+Business calculation performed transactionally:
 
 ```text
 active_reserved_stock = sum(ACTIVE reservations for material)
 available_stock = max(current_stock - active_reserved_stock, 0)
-usable_existing_stock = min(gross_requirement, available_stock)
-net_procurement = max(gross_requirement - usable_existing_stock, 0)
+allocation_qty = min(gross_requirement, available_stock)
+net_procurement = max(gross_requirement - available_stock, 0)
 ```
 
-The stock row/reservation state must be locked while calculating and allocating to prevent the same physical stock from offsetting multiple future requirements.
+If `allocation_qty > 0`, an `ACTIVE` `stock_reservations` row is created and linked to the procurement request item. If allocation is zero, no zero-quantity reservation is created.
+
+The material stock row is locked with `FOR UPDATE` before availability is calculated. Every stock-check allocation follows the same lock path, serializing concurrent reservations for the same material and preventing double allocation.
 
 ### deferred reservation FK
-`stock_reservations.procurement_request_item_id` now references `procurement_request_items.id` with `ON DELETE RESTRICT`.
+`stock_reservations.procurement_request_item_id` references `procurement_request_items.id` with `ON DELETE RESTRICT`.
 
 ### purchase_orders
 Header statuses:
@@ -216,9 +230,15 @@ Implemented source queries:
 - `internal/database/query/inventory.sql`
 - `internal/database/query/procurement.sql`
 
-They cover the initial master/material/menu/scheduled-menu/inventory/reservation/procurement/PO operations needed by the service layer.
+The query layer now includes:
+- scheduled-menu gross requirement aggregation;
+- on-demand material-stock initialization;
+- row locking for material stock;
+- active reservation totals and procurement availability calculation;
+- reservation lookup by procurement request;
+- procurement request lifecycle queries.
 
-`sqlc generate` still requires local validation after migrations are applied to a clean development setup.
+`sqlc generate`, migrations, rollback, tests, and build are validated by GitHub Actions against PostgreSQL 17.
 
 ## Planned Receiving
 Receipt rules:
@@ -257,7 +277,7 @@ Statuses:
 `difference_qty = physical_qty - system_qty` is system-calculated. Differences do not alter stock automatically. Adjustment requires Chef + Akuntan approval.
 
 ## Important Transaction Rules
-- Procurement stock check + reservation must commit atomically and lock relevant inventory/reservation state.
+- Procurement stock check + reservation must commit atomically and lock the relevant `material_stocks` row before calculating availability.
 - PO item H-1 cancellation must be validated against the PO delivery date in the same business operation.
 - Receipt and stock IN must commit atomically.
 - Direct purchase and stock IN must commit atomically.
