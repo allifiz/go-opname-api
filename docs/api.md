@@ -5,17 +5,62 @@ This file tracks the HTTP contract surface. Detailed schemas belong in code/Open
 ## Conventions
 - Base path: `/api/v1`.
 - JSON request/response.
+- `GET /health` and `POST /api/v1/auth/login` are public.
+- Every other `/api/v1` endpoint requires `Authorization: Bearer <JWT>`.
+- Missing/invalid/expired token -> `401`.
+- Authenticated role not permitted -> `403`.
 - Validation errors -> `400`.
 - Missing rows -> `404`.
 - Conflict/invalid transition -> `409`.
 - Business quantity/stock violations -> `422`.
 - Unexpected failures -> `500`.
-- Authentication is not implemented yet; audit user IDs are temporarily supplied in request bodies where required.
+- Operational audit identity is derived from JWT and is not trusted from request-body actor fields.
 - Quantities and prices are represented as JSON strings when mapped to PostgreSQL `NUMERIC`.
+
+## Authentication
+
+### Login
+`POST /api/v1/auth/login`
+
+```json
+{
+  "email": "akuntan@example.com",
+  "password": "secret"
+}
+```
+
+Success returns an HS256 Bearer token valid for 8 hours plus the authenticated user summary. Passwords are verified with bcrypt against `users.password_hash`.
+
+Token claims:
+- `sub`: user UUID
+- `role`: current role code at login
+- `email`
+- `exp`
+
+`JWT_SECRET` is required at runtime and must be at least 32 characters.
+
+### Current Actor
+`GET /api/v1/auth/me`
+
+Returns the user ID, role, and email resolved from the validated token.
+
+### Initial User Provisioning
+No public default credential is seeded by migrations. Initial users must be provisioned securely outside the public login endpoint until a dedicated provisioning/admin workflow is implemented.
+
+## RBAC
+
+Write permissions currently enforced at the HTTP boundary:
+- `AHLI_GIZI`: create periods, menu templates, and scheduled menus.
+- `AHLI_GIZI` or `PENGAWAS_BAHAN_BAKU`: create/update materials.
+- `PENGAWAS_BAHAN_BAKU`: procurement stock check/submission, PO generation/H-1 cancellation, receiving, direct purchases, material usage entry/revision/submission, stock opname, adjustment revision/submission.
+- `AKUNTAN`: procurement verification/rejection.
+- `CHEF` or `AKUNTAN`: material-usage and stock-adjustment decisions.
+
+Authenticated read endpoints are currently available to all authenticated roles unless a narrower rule is added later. `KEPALA_SPPG` operational permissions remain TBD.
 
 ## Master / Menu
 Implemented:
-- `GET /health`
+- `GET /health` (public)
 - `GET /api/v1/units`
 - `GET /api/v1/materials`
 - `GET /api/v1/materials/:id`
@@ -44,11 +89,15 @@ Implemented:
 - `GET /api/v1/scheduled-menus/:id/purchase-orders`
 - `POST /api/v1/purchase-order-items/:id/cancel-h1`
 
+`verified_by` and `cancelled_by` are derived from JWT. PO ordered quantity remains server-derived from verified `net_procurement_qty`.
+
 ## Receiving
 Implemented:
 - `POST /api/v1/purchase-orders/:id/receipts`
 - `GET /api/v1/purchase-orders/:id/receipts`
 - `GET /api/v1/receipts/:id`
+
+For create receipt, `received_by` is derived from JWT. Receiving remains cumulative and positive receipt quantity creates stock `IN / PO_RECEIPT` atomically.
 
 ## Direct Purchase
 Implemented:
@@ -57,27 +106,57 @@ Implemented:
 - `GET /api/v1/direct-purchases/:id`
 - `GET /api/v1/scheduled-menus/:id/direct-purchases`
 
+`purchased_by` is derived from JWT. `SHORTAGE` cannot exceed cumulative remaining shortage. `ADDITIONAL_REQUIREMENT` quantities are server-calculated from scheduled-menu snapshot recipe and effective portion delta.
+
 ## Material Usage
-Implemented and green through CI run #55:
+Implemented:
 - `POST /api/v1/scheduled-menus/:id/material-usage`
 - `GET /api/v1/material-usages/:id`
 - `PUT /api/v1/material-usages/:id`
 - `POST /api/v1/material-usages/:id/submit`
 - `POST /api/v1/material-usages/:id/decision`
 
-Usage requires versioned Chef + Accountant approval before stock OUT. Negative stock is rejected atomically.
+Create/update body no longer needs an audit actor:
+```json
+{
+  "usage_date": "2026-08-12",
+  "items": [
+    {
+      "material_id": "<uuid>",
+      "actual_qty": "12.5000"
+    }
+  ]
+}
+```
+
+Rules:
+- Pengawas creates/revises/submits usage.
+- JWT user becomes `submitted_by`.
+- Chef or Accountant makes a decision; JWT user becomes `approver_id`.
+- Usage requires both roles to approve the same entity version before stock OUT.
+- Negative stock is rejected atomically.
+
+Decision body:
+```json
+{
+  "decision": "APPROVED",
+  "note": "optional"
+}
+```
 
 ## Stock Opname
-Implemented; latest CI validation applies to this batch.
-
-### Create
+Implemented:
 - `POST /api/v1/scheduled-menus/:id/stock-opname`
+- `GET /api/v1/stock-opnames/:id`
+- `GET /api/v1/stock-adjustments/:id`
+- `PUT /api/v1/stock-adjustments/:id`
+- `POST /api/v1/stock-adjustments/:id/submit`
+- `POST /api/v1/stock-adjustments/:id/decision`
 
-Example:
+Create example:
 ```json
 {
   "opname_date": "2026-08-12",
-  "performed_by": "<existing-user-uuid>",
   "items": [
     {
       "material_id": "<uuid>",
@@ -88,75 +167,32 @@ Example:
 }
 ```
 
-Rules:
-- One stock opname lifecycle per scheduled menu.
-- Input material set must exactly match the scheduled-menu material set in V1.
-- `system_qty` is captured server-side from current `material_stocks` while the row is locked.
-- `difference_qty = physical_qty - system_qty` is generated by PostgreSQL.
-- Matching materials create no adjustment.
-- A non-zero difference creates a DRAFT stock adjustment, but does not change inventory.
-- `reason` is required only when that material has a difference.
+`performed_by` is derived from the Pengawas JWT.
 
-### Read
-- `GET /api/v1/stock-opnames/:id`
-- `GET /api/v1/stock-adjustments/:id`
-
-Stock opname detail returns header, items, and generated adjustments. Adjustment detail returns the adjustment and its approval history.
-
-### Revise Adjustment
-- `PUT /api/v1/stock-adjustments/:id`
-
-Example:
+Revise adjustment:
 ```json
 {
   "physical_qty": "9.0000",
-  "reason": "Hitung ulang fisik",
-  "submitted_by": "<existing-user-uuid>"
+  "reason": "Hitung ulang fisik"
 }
 ```
 
-Rules:
-- Only `DRAFT` or `NEEDS_REVISION` adjustments may be revised.
-- Client never sends `adjustment_qty`.
-- Revising physical quantity updates the opname item and recalculates generated difference.
-- The adjustment copies the new difference, increments `version`, and resets to `DRAFT`.
-- Historical approval rows are retained and older versions no longer count.
-- Revision that makes the difference exactly zero is rejected in the current V1 flow; matching corrections should be handled before adjustment submission.
+`submitted_by` is derived from JWT. Client never sends `adjustment_qty`; it remains server-derived from the opname difference.
 
-### Submit Adjustment
-- `POST /api/v1/stock-adjustments/:id/submit`
-
+Decision:
 ```json
 {
-  "submitted_by": "<existing-user-uuid>"
-}
-```
-
-Transition: `DRAFT -> WAITING_APPROVAL`. The parent opname enters `WAITING_ADJUSTMENT_APPROVAL`.
-
-### Chef / Accountant Decision
-- `POST /api/v1/stock-adjustments/:id/decision`
-
-```json
-{
-  "approver_id": "<existing-user-uuid>",
   "decision": "APPROVED",
   "note": "optional"
 }
 ```
 
-Rules:
-- Only active `CHEF` and `AKUNTAN` users may decide.
-- One decision per required role per entity version.
-- `REJECTED` moves adjustment to `NEEDS_REVISION`; no stock is changed.
-- Two approvals for the same current version apply the adjustment atomically.
-- Positive difference -> stock increase + `ADJUSTMENT_IN / STOCK_ADJUSTMENT` movement.
-- Negative difference -> stock decrease + `ADJUSTMENT_OUT / STOCK_ADJUSTMENT` movement.
-- `ADJUSTMENT_OUT` cannot make stock negative; insufficient stock returns `422` and rolls back the second approval transaction.
-- The parent stock opname becomes `COMPLETED` only when all of its adjustments are `APPROVED`.
+JWT identity becomes `approver_id`. Only Chef and Accountant may decide, and two approvals for the same current version are required before the adjustment changes inventory.
 
 ## Important Business Errors
 Current categories:
+- invalid/missing credentials -> `401`
+- authenticated role denied -> `403`
 - invalid input -> `400`
 - resource not found -> `404`
 - invalid transition/conflict -> `409`
