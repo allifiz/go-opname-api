@@ -8,6 +8,9 @@ import (
 	"syscall"
 
 	"github.com/allifiz/go-opname-api/internal/config"
+	httpHandler "github.com/allifiz/go-opname-api/internal/handler/http"
+	"github.com/allifiz/go-opname-api/internal/repository"
+	"github.com/allifiz/go-opname-api/internal/service"
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -35,6 +38,11 @@ func main() {
 			"status": "ok",
 		})
 	})
+
+	store := repository.NewStore(db)
+	coreService := service.NewCoreService(store)
+	coreHandler := httpHandler.NewCoreHandler(coreService)
+	httpHandler.RegisterCoreRoutes(app, coreHandler)
 
 	go func() {
 		<-ctx.Done()
