@@ -1,30 +1,38 @@
 # Go Opname API
 
-Backend API untuk pengadaan bahan baku harian berdasarkan rencana menu mingguan.
+Backend Go untuk alur perencanaan menu, procurement, receiving, pemakaian bahan, stock opname, dan adjustment gudang.
 
 ## Tech stack
 
 - Go 1.25+
 - Fiber
 - PostgreSQL
-- pgx
+- pgx/v5
 - Goose migrations
 - sqlc
+- JWT HS256
+- bcrypt
 - Air untuk hot reload
 
 ## Status project
 
-Fondasi lokal sudah berhasil dijalankan dan divalidasi di Windows dengan PostgreSQL lokal:
+Core inventory V1 sudah mencakup:
 
-- koneksi PostgreSQL berhasil
-- migration Goose berhasil
-- `sqlc generate` berhasil
-- API Fiber berjalan di port `8080`
-- endpoint `GET /health` mengembalikan `{ "status": "ok" }`
+```text
+Menu / Scheduled Menu
+→ Procurement + Reservation
+→ PO + H-1 Re-check
+→ Receiving
+→ SHORTAGE / ADDITIONAL_REQUIREMENT
+→ Material Usage + Dual Approval
+→ Stock OUT
+→ Stock Opname
+→ Stock Adjustment + Dual Approval
+```
+
+Concurrency-sensitive flow divalidasi dengan PostgreSQL asli di GitHub Actions. Authentication/JWT + RBAC juga sudah diterapkan pada HTTP API.
 
 ## Prasyarat
-
-Pastikan sudah terpasang:
 
 ```powershell
 git --version
@@ -33,90 +41,70 @@ postgres --version
 psql --version
 ```
 
-Docker tidak wajib. Panduan utama di bawah menggunakan PostgreSQL yang terpasang langsung di komputer.
+Docker tidak wajib.
 
-## Setup lokal dengan PostgreSQL langsung
+## Setup lokal
 
-### 1. Clone repository
+### 1. Clone
 
 ```powershell
 git clone https://github.com/allifiz/go-opname-api.git
 cd go-opname-api
 ```
 
-Jika repository sudah pernah di-clone:
+Jika repository sudah ada:
 
 ```powershell
 git checkout main
 git pull origin main
 ```
 
-### 2. Buat user dan database PostgreSQL
-
-Masuk ke PostgreSQL menggunakan user administrator:
+### 2. Buat PostgreSQL user/database
 
 ```powershell
 psql -U postgres
 ```
 
-Jalankan:
-
 ```sql
 CREATE USER opname WITH PASSWORD 'opname';
 CREATE DATABASE opname OWNER opname;
 GRANT ALL PRIVILEGES ON DATABASE opname TO opname;
-```
-
-Keluar dari `psql`:
-
-```sql
 \q
 ```
 
-Jika user atau database tersebut sudah tersedia, langkah pembuatan dapat dilewati.
-
-### 3. Buat file environment
-
-Windows PowerShell:
+### 3. Environment
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-Windows Command Prompt:
-
-```cmd
-copy .env.example .env
-```
-
-Isi default `.env`:
+Contoh:
 
 ```env
 APP_PORT=8080
 DATABASE_URL=postgres://opname:opname@localhost:5432/opname?sslmode=disable
+JWT_SECRET=change-this-development-secret-at-least-32-characters
 ```
 
-Sesuaikan username, password, host, port, atau database jika konfigurasi PostgreSQL lokal berbeda.
+`JWT_SECRET` wajib ada dan minimal 32 karakter. Gunakan secret berbeda dan kuat untuk production.
 
-### 4. Download dependency Go
+### 4. Dependency
 
 ```powershell
 go mod tidy
 ```
 
-### 5. Jalankan migration
+### 5. Migration
 
 ```powershell
 go run github.com/pressly/goose/v3/cmd/goose@latest -dir migrations postgres "postgres://opname:opname@localhost:5432/opname?sslmode=disable" up
 ```
 
-### 6. Generate kode sqlc
+### 6. Generate sqlc
 
 ```powershell
 go run github.com/sqlc-dev/sqlc/cmd/sqlc@latest generate
 ```
-
-Pada eksekusi pertama, proses ini dapat memerlukan waktu karena Go mengunduh dependency `sqlc`.
 
 ### 7. Jalankan API
 
@@ -124,17 +112,11 @@ Pada eksekusi pertama, proses ini dapat memerlukan waktu karena Go mengunduh dep
 go run ./cmd/api
 ```
 
-Server yang berhasil berjalan akan menampilkan informasi bahwa API listening pada port `8080`.
-
-### 8. Tes health endpoint
-
-Gunakan browser, Postman, atau PowerShell:
+### 8. Health check
 
 ```powershell
 Invoke-RestMethod http://localhost:8080/health
 ```
-
-Response:
 
 ```json
 {
@@ -142,79 +124,80 @@ Response:
 }
 ```
 
-Di Postman:
+## Authentication
+
+Public endpoint:
 
 ```text
-Method : GET
-URL    : http://localhost:8080/health
+POST /api/v1/auth/login
 ```
 
-## Hot reload dengan Air
+Body:
+
+```json
+{
+  "email": "user@example.com",
+  "password": "your-password"
+}
+```
+
+Protected endpoint menggunakan:
+
+```text
+Authorization: Bearer <JWT>
+```
+
+Untuk mengecek actor token:
+
+```text
+GET /api/v1/auth/me
+```
+
+JWT berlaku 8 jam. Password user disimpan sebagai bcrypt hash di `users.password_hash`.
+
+### Initial user
+
+Repository sengaja **tidak men-seed default username/password**. User awal harus diprovision secara aman ke tabel `users` dengan bcrypt password hash sampai workflow provisioning/admin khusus tersedia. Ini sedikit lebih merepotkan daripada `admin/admin`, tetapi jauh lebih sedikit merepotkan daripada menjelaskan insiden keamanan.
+
+## Role utama
+
+- `AHLI_GIZI`: period, menu template, scheduled menu.
+- `PENGAWAS_BAHAN_BAKU`: operasi procurement/gudang, receiving, direct purchase, usage entry, stock opname.
+- `AKUNTAN`: verifikasi procurement dan approval terkait.
+- `CHEF`: approval material usage dan stock adjustment.
+- `KEPALA_SPPG`: permission operasional masih TBD.
+
+Detail kontrak ada di `docs/api.md` dan keputusan desain ada di `docs/decisions.md`.
+
+## Hot reload
 
 ```powershell
 go run github.com/air-verse/air@latest
 ```
 
-API akan restart otomatis ketika file Go atau SQL berubah.
-
-## Setup opsional dengan Docker
-
-Jika Docker Desktop tersedia:
+## Docker opsional
 
 ```powershell
 Copy-Item .env.example .env
 go mod tidy
 docker compose up -d postgres
-go run github.com/pressly/goose/v3/cmd/goose@latest -dir migrations postgres "postgres://opname:opname@localhost:5432/opname?sslmode=disable" up
+go run github.com/pressly/goose/v3/cmd/goose@latest -dir migrations postgres "$env:DATABASE_URL" up
 go run github.com/sqlc-dev/sqlc/cmd/sqlc@latest generate
 go run github.com/air-verse/air@latest
 ```
 
-Jika `make` tersedia:
+## Database commands
+
+Migration up:
 
 ```powershell
-make tidy
-make dev
-```
-
-Perintah `make dev` menggunakan PostgreSQL dari Docker Compose.
-
-## DBeaver
-
-Gunakan konfigurasi berikut untuk koneksi PostgreSQL lokal:
-
-```text
-Host     : localhost
-Port     : 5432
-Database : opname
-Username : opname
-Password : opname
-```
-
-Setelah migration berjalan, refresh bagian:
-
-```text
-Schemas > public > Tables
-```
-
-Tabel awal yang tersedia antara lain:
-
-- `users`
-- `ingredients`
-- `goose_db_version`
-
-## Perintah database
-
-Migration naik:
-
-```powershell
-go run github.com/pressly/goose/v3/cmd/goose@latest -dir migrations postgres "postgres://opname:opname@localhost:5432/opname?sslmode=disable" up
+go run github.com/pressly/goose/v3/cmd/goose@latest -dir migrations postgres "$env:DATABASE_URL" up
 ```
 
 Rollback satu migration:
 
 ```powershell
-go run github.com/pressly/goose/v3/cmd/goose@latest -dir migrations postgres "postgres://opname:opname@localhost:5432/opname?sslmode=disable" down
+go run github.com/pressly/goose/v3/cmd/goose@latest -dir migrations postgres "$env:DATABASE_URL" down
 ```
 
 Generate ulang sqlc:
@@ -223,6 +206,25 @@ Generate ulang sqlc:
 go run github.com/sqlc-dev/sqlc/cmd/sqlc@latest generate
 ```
 
-## Catatan keamanan
+## CI
 
-Konfigurasi `opname/opname` hanya untuk development lokal. Jangan gunakan password tersebut untuk production dan jangan commit file `.env` ke repository.
+GitHub Actions menggunakan PostgreSQL 17 dan menjalankan:
+
+```text
+migration up
+→ rollback to 0
+→ migration up
+→ sqlc generate
+→ go test ./...
+→ go build ./...
+```
+
+Integration tests mencakup concurrency inventory serta authentication/RBAC.
+
+## Keamanan
+
+- Jangan commit `.env`.
+- Jangan gunakan credential database development di production.
+- Jangan gunakan `JWT_SECRET` contoh untuk production.
+- Jangan menyimpan password plaintext; gunakan bcrypt.
+- Audit actor pada HTTP write-flow berasal dari JWT, bukan UUID yang dipercaya dari body request.
