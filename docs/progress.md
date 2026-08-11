@@ -1,7 +1,7 @@
 # Project Progress
 
 ## Current Phase
-Core database layer is implemented and validated; phase-1/2 HTTP flows for master data, periods, menu templates, and scheduled-menu snapshots are implemented and awaiting the latest CI validation.
+Core database layer and phase-1/2 HTTP flows are implemented and green in GitHub Actions. Next focus is procurement stock-check and stock reservation.
 
 ## Last Updated
 2026-08-12
@@ -17,7 +17,7 @@ Core database layer is implemented and validated; phase-1/2 HTTP flows for maste
 - Foundation, menu, inventory, and procurement migrations implemented.
 - Foundation/menu/inventory/procurement sqlc query sources implemented.
 - GitHub Actions CI added with PostgreSQL 17, Go `1.26.x`, Goose `v3.27.1`, and sqlc `v1.31.1`.
-- Migration up, rollback-to-zero, re-apply, sqlc generation, tests, and build previously passed in CI.
+- Migration up, rollback-to-zero, re-apply, sqlc generation, tests, and build pass in CI.
 - sqlc generated code is automatically synchronized by GitHub Actions.
 - Core repository store implemented at `internal/repository/store.go`.
 - Core service implemented at `internal/service/core_service.go`.
@@ -30,6 +30,7 @@ Core database layer is implemented and validated; phase-1/2 HTTP flows for maste
 - Menu-template creation is transactional for template + components + materials.
 - Scheduled-menu create/detail endpoints implemented.
 - Scheduled-menu creation validates date inside period and transactionally snapshots template components/materials.
+- Core API batch passed GitHub Actions run #8 including migrations, sqlc generation, tests, and build.
 - `docs/api.md` synchronized with the implemented HTTP surface.
 
 ## Implemented Migrations
@@ -60,11 +61,9 @@ Core database layer is implemented and validated; phase-1/2 HTTP flows for maste
 - The original starter migration was rewritten during initial development; old local databases that ran it must be reset/recreated.
 
 ## Validation Status
-The database/query layer previously passed full GitHub Actions validation.
+GREEN through GitHub Actions.
 
-The latest HTTP/service/repository batch must pass the next CI run before being considered fully validated.
-
-Canonical CI checks:
+Latest core API validation passed:
 - PostgreSQL 17 startup.
 - Goose migration `up`.
 - Goose rollback `down-to 0`.
@@ -74,17 +73,18 @@ Canonical CI checks:
 - `go build ./...`.
 
 ## In Progress
-- Validate the newly implemented core repository/service/HTTP layer in GitHub Actions.
-- Fix any generated-type or compile mismatch surfaced by CI.
+- Design and implement procurement stock-check + stock-reservation transaction.
 
 ## Next
-1. Get the latest core API CI run green.
-2. Add menu-template update flow without mutating historical scheduled-menu snapshots.
-3. Implement procurement stock-check + stock-reservation transaction.
-4. Expose procurement request submit/verify/reject flow.
-5. Generate PO from verified net procurement.
-6. Add tests around reservation concurrency and negative-stock invariants.
-7. Continue with `000005_receiving.sql` after procurement application flow is stable.
+1. Implement procurement gross requirement calculation from scheduled-menu snapshots.
+2. Lock material stock and active reservations while allocating existing stock.
+3. Persist procurement request items with gross, existing, reserved, and net procurement quantities.
+4. Create/update stock reservations atomically with the procurement stock check.
+5. Expose procurement request detail/submit/verify/reject endpoints.
+6. Generate PO from verified net procurement.
+7. Add tests around reservation concurrency and negative-stock invariants.
+8. Add menu-template update flow without mutating historical scheduled-menu snapshots.
+9. Continue with `000005_receiving.sql` after procurement application flow is stable.
 
 ## Blockers / TBD
 - `KEPALA_SPPG` exists as a role, but operational permissions are still TBD.
