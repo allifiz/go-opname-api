@@ -8,6 +8,7 @@ This file tracks the HTTP contract surface. It is intentionally concise; detaile
 - Validation errors return `400` with `{ "error": "..." }`.
 - Missing rows return `404`.
 - Conflict/invalid state transitions return `409`.
+- Insufficient stock for a business operation returns `422`.
 - Unexpected database/application failures return `500`.
 - Authentication/authorization is not implemented yet; audit user fields remain nullable until auth is added.
 - `GET /health` remains outside `/api/v1`.
@@ -31,23 +32,6 @@ This file tracks the HTTP contract surface. It is intentionally concise; detaile
 - `PUT /api/v1/materials/:id`
 - Status: implemented.
 
-Create body:
-```json
-{
-  "name": "Dada Ayam",
-  "unit_id": "<uuid>"
-}
-```
-
-Update body:
-```json
-{
-  "name": "Dada Ayam",
-  "unit_id": "<uuid>",
-  "is_active": true
-}
-```
-
 ## Phase 2: Period and Menu
 
 ### Periods
@@ -55,60 +39,21 @@ Update body:
 - `POST /api/v1/periods`
 - Status: implemented.
 
-Create body only accepts `start_date`; the service derives `end_date = start_date + 13 days` to preserve the approved 14-day period invariant.
-
-```json
-{
-  "name": "Periode Agustus 1",
-  "start_date": "2026-08-17"
-}
-```
+Create body accepts `name` and `start_date`; the service derives `end_date = start_date + 13 days`.
 
 ### Menu Templates
 - `GET /api/v1/menu-templates`
 - `GET /api/v1/menu-templates/:id`
 - `POST /api/v1/menu-templates`
 - `PUT /api/v1/menu-templates/:id`
-- Status: create/list/detail implemented; update is still planned.
-
-Create is transactional and accepts nested components/materials:
-```json
-{
-  "name": "Ayam Katsu",
-  "description": "Template menu",
-  "components": [
-    {
-      "name": "Lauk",
-      "sort_order": 1,
-      "materials": [
-        {
-          "material_id": "<uuid>",
-          "qty_per_portion": "0.0800",
-          "unit_id": "<uuid>"
-        }
-      ]
-    }
-  ]
-}
-```
-
-`qty_per_portion` is represented as a JSON string to avoid floating-point precision loss before PostgreSQL `NUMERIC(18,4)`.
+- Status: create/list/detail implemented; update still planned.
 
 ### Scheduled Menus
 - `GET /api/v1/scheduled-menus/:id`
 - `POST /api/v1/scheduled-menus`
 - Status: implemented.
 
-Creation validates that `menu_date` is inside the selected period, then transactionally snapshots the selected template components and materials.
-
-```json
-{
-  "period_id": "<uuid>",
-  "menu_template_id": "<uuid>",
-  "menu_date": "2026-08-17",
-  "planned_portions": 500
-}
-```
+Creation validates `menu_date` inside the selected period and snapshots template components/materials transactionally.
 
 ## Phase 3: Procurement
 
@@ -116,61 +61,75 @@ Creation validates that `menu_date` is inside the selected period, then transact
 - `POST /api/v1/scheduled-menus/:id/procurement-stock-check`
 - Status: implemented.
 
-The operation:
-1. Aggregates gross material requirements from the scheduled-menu snapshot.
-2. Creates/locks each material stock row.
-3. Reads active reservations while holding the material-stock lock.
-4. Calculates existing stock, already-reserved stock, available allocation, and net procurement.
-5. Creates procurement request items.
-6. Creates an `ACTIVE` stock reservation only when allocation quantity is greater than zero.
-7. Commits the complete stock check atomically.
-
-Only one procurement request may exist for a scheduled menu. Repeating the stock-check endpoint for the same scheduled menu returns `409`.
+The operation aggregates gross requirement, locks material stock, accounts for active reservations, persists gross/existing/reserved/net quantities, and creates active reservations atomically.
 
 ### Procurement Request Read
 - `GET /api/v1/procurement-requests/:id`
 - `GET /api/v1/scheduled-menus/:id/procurement-requests`
 - Status: implemented.
 
-Detail includes:
-- procurement-request header;
-- item snapshots (`gross_requirement_qty`, `existing_stock_qty`, `reserved_stock_qty`, `net_procurement_qty`);
-- reservations created for the request.
-
-### Submit for Accountant Verification
+### Submit / Verify / Reject
 - `POST /api/v1/procurement-requests/:id/submit`
-- Status: implemented.
-- Allowed current statuses: `DRAFT`, `REJECTED`.
-- Target status: `WAITING_VERIFICATION`.
-
-### Verify
 - `POST /api/v1/procurement-requests/:id/verify`
+- `POST /api/v1/procurement-requests/:id/reject`
 - Status: implemented.
-- Allowed current status: `WAITING_VERIFICATION`.
-- Target status: `VERIFIED`.
 
-Authentication is not implemented yet, so the temporary request body must explicitly supply an existing Accountant user UUID for the audit FK:
-
+Until authentication exists, verify requires:
 ```json
 {
   "verified_by": "<existing-user-uuid>"
 }
 ```
 
-This temporary field should be removed from the public request contract once authentication provides the acting user identity.
-
-### Reject
-- `POST /api/v1/procurement-requests/:id/reject`
+### Generate Purchase Order
+- `POST /api/v1/procurement-requests/:id/purchase-order`
 - Status: implemented.
-- Allowed current status: `WAITING_VERIFICATION`.
-- Target status: `REJECTED`.
-- Rejection keeps the same procurement request lifecycle and its reservation; the request can be revised/resubmitted rather than duplicated.
+- Procurement request must be `VERIFIED`.
+- One purchase order is allowed per procurement request.
+- `ordered_qty` is always copied server-side from `net_procurement_qty`; clients cannot override it.
+- Only positive net-procurement items are included.
+- Every positive net-procurement item must be supplied exactly once in the request body.
 
-### Purchase Order
-Still planned:
-- generate PO from verified net procurement;
-- H-1 stock re-check;
-- cancel individual PO item with reason.
+Example body:
+```json
+{
+  "delivery_date": "2026-08-20",
+  "items": [
+    {
+      "procurement_request_item_id": "<uuid>",
+      "supplier_name": "Supplier A",
+      "agreed_unit_price": "27500.00"
+    }
+  ]
+}
+```
+
+The generated PO starts in `VERIFIED` status and receives a server-generated `PO-YYYYMMDD-XXXXXXXXXX` number.
+
+### Purchase Order Read
+- `GET /api/v1/purchase-orders/:id`
+- `GET /api/v1/scheduled-menus/:id/purchase-orders`
+- Status: implemented.
+
+### H-1 PO Item Cancellation
+- `POST /api/v1/purchase-order-items/:id/cancel-h1`
+- Status: implemented.
+- Item must still be `WAITING`.
+- Cancellation is allowed only before the delivery date, so the latest valid day is H-1.
+- The service locks the PO item and material stock.
+- It verifies enough currently-unreserved stock exists to replace the full ordered quantity.
+- It creates an additional active stock reservation first, in the same transaction.
+- Only after the reservation succeeds is the PO item changed to `CANCELLED`.
+- Cancellation reason is fixed to `EXISTING_STOCK_SUFFICIENT` for this flow.
+
+Until authentication exists, body requires:
+```json
+{
+  "cancelled_by": "<existing-user-uuid>"
+}
+```
+
+If unreserved stock is insufficient, the operation returns `422`. If the cancellation deadline has passed or item status is invalid, it returns `409`.
 
 ## Phase 4: Receiving and Direct Purchase
 Planned capabilities:
@@ -199,18 +158,16 @@ Planned capabilities:
 - apply approved adjustment to inventory ledger
 
 ## Important Business Errors
-Stable service categories currently include:
+Current categories include:
 - invalid input -> `400`
 - resource not found -> `404`
-- conflict -> `409`
-- invalid status transition -> `409`
+- conflict / invalid transition -> `409`
+- `PO_CANCEL_DEADLINE_PASSED` -> `409`
+- `INSUFFICIENT_STOCK` -> `422`
 - PostgreSQL unique violation -> `409`
 
-Planned explicit business identifiers include:
-- `INSUFFICIENT_STOCK`
+Still planned:
 - `SHORTAGE_QTY_EXCEEDED`
-- `PO_CANCEL_DEADLINE_PASSED`
 - `APPROVAL_VERSION_STALE`
 - `INVALID_APPROVER_ROLE`
-- `INVALID_STATUS_TRANSITION`
 - `STOCK_ALREADY_RESERVED`
