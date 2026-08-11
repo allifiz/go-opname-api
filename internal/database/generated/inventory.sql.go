@@ -144,6 +144,25 @@ func (q *Queries) CreateStockReservation(ctx context.Context, arg CreateStockRes
 	return i, err
 }
 
+const ensureMaterialStock = `-- name: EnsureMaterialStock :exec
+INSERT INTO material_stocks (
+    material_id,
+    qty,
+    unit_id
+) VALUES ($1, 0, $2)
+ON CONFLICT (material_id) DO NOTHING
+`
+
+type EnsureMaterialStockParams struct {
+	MaterialID pgtype.UUID `json:"material_id"`
+	UnitID     pgtype.UUID `json:"unit_id"`
+}
+
+func (q *Queries) EnsureMaterialStock(ctx context.Context, arg EnsureMaterialStockParams) error {
+	_, err := q.db.Exec(ctx, ensureMaterialStock, arg.MaterialID, arg.UnitID)
+	return err
+}
+
 const getMaterialStock = `-- name: GetMaterialStock :one
 SELECT
     ms.material_id,
@@ -177,6 +196,78 @@ func (q *Queries) GetMaterialStock(ctx context.Context, materialID pgtype.UUID) 
 		&i.UnitID,
 		&i.UnitCode,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getProcurementStockAvailability = `-- name: GetProcurementStockAvailability :one
+SELECT
+    ms.qty::NUMERIC(18,4) AS existing_stock_qty,
+    COALESCE((
+        SELECT SUM(sr.qty)
+        FROM stock_reservations sr
+        WHERE sr.material_id = ms.material_id
+          AND sr.status = 'ACTIVE'
+    ), 0)::NUMERIC(18,4) AS reserved_stock_qty,
+    GREATEST(
+        ms.qty - COALESCE((
+            SELECT SUM(sr.qty)
+            FROM stock_reservations sr
+            WHERE sr.material_id = ms.material_id
+              AND sr.status = 'ACTIVE'
+        ), 0),
+        0
+    )::NUMERIC(18,4) AS available_stock_qty,
+    LEAST(
+        $1::NUMERIC,
+        GREATEST(
+            ms.qty - COALESCE((
+                SELECT SUM(sr.qty)
+                FROM stock_reservations sr
+                WHERE sr.material_id = ms.material_id
+                  AND sr.status = 'ACTIVE'
+            ), 0),
+            0
+        )
+    )::NUMERIC(18,4) AS allocation_qty,
+    GREATEST(
+        $1::NUMERIC - GREATEST(
+            ms.qty - COALESCE((
+                SELECT SUM(sr.qty)
+                FROM stock_reservations sr
+                WHERE sr.material_id = ms.material_id
+                  AND sr.status = 'ACTIVE'
+            ), 0),
+            0
+        ),
+        0
+    )::NUMERIC(18,4) AS net_procurement_qty
+FROM material_stocks ms
+WHERE ms.material_id = $2
+`
+
+type GetProcurementStockAvailabilityParams struct {
+	GrossRequirementQty pgtype.Numeric `json:"gross_requirement_qty"`
+	MaterialID          pgtype.UUID    `json:"material_id"`
+}
+
+type GetProcurementStockAvailabilityRow struct {
+	ExistingStockQty  pgtype.Numeric `json:"existing_stock_qty"`
+	ReservedStockQty  pgtype.Numeric `json:"reserved_stock_qty"`
+	AvailableStockQty pgtype.Numeric `json:"available_stock_qty"`
+	AllocationQty     pgtype.Numeric `json:"allocation_qty"`
+	NetProcurementQty pgtype.Numeric `json:"net_procurement_qty"`
+}
+
+func (q *Queries) GetProcurementStockAvailability(ctx context.Context, arg GetProcurementStockAvailabilityParams) (GetProcurementStockAvailabilityRow, error) {
+	row := q.db.QueryRow(ctx, getProcurementStockAvailability, arg.GrossRequirementQty, arg.MaterialID)
+	var i GetProcurementStockAvailabilityRow
+	err := row.Scan(
+		&i.ExistingStockQty,
+		&i.ReservedStockQty,
+		&i.AvailableStockQty,
+		&i.AllocationQty,
+		&i.NetProcurementQty,
 	)
 	return i, err
 }
@@ -277,6 +368,48 @@ func (q *Queries) ListStockMovementsByMaterial(ctx context.Context, materialID p
 			&i.MovementDate,
 			&i.CreatedBy,
 			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listStockReservationsByProcurementRequest = `-- name: ListStockReservationsByProcurementRequest :many
+SELECT sr.id, sr.scheduled_menu_id, sr.procurement_request_item_id, sr.material_id, sr.qty, sr.unit_id, sr.status, sr.reserved_at, sr.released_at, sr.consumed_at, sr.created_by, sr.created_at, sr.updated_at
+FROM stock_reservations sr
+JOIN procurement_request_items pri ON pri.id = sr.procurement_request_item_id
+WHERE pri.procurement_request_id = $1
+ORDER BY sr.reserved_at ASC
+`
+
+func (q *Queries) ListStockReservationsByProcurementRequest(ctx context.Context, procurementRequestID pgtype.UUID) ([]StockReservation, error) {
+	rows, err := q.db.Query(ctx, listStockReservationsByProcurementRequest, procurementRequestID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []StockReservation
+	for rows.Next() {
+		var i StockReservation
+		if err := rows.Scan(
+			&i.ID,
+			&i.ScheduledMenuID,
+			&i.ProcurementRequestItemID,
+			&i.MaterialID,
+			&i.Qty,
+			&i.UnitID,
+			&i.Status,
+			&i.ReservedAt,
+			&i.ReleasedAt,
+			&i.ConsumedAt,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}

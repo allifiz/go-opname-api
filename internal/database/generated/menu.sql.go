@@ -331,6 +331,57 @@ func (q *Queries) GetScheduledMenuByID(ctx context.Context, id pgtype.UUID) (Sch
 	return i, err
 }
 
+const getScheduledMenuGrossRequirements = `-- name: GetScheduledMenuGrossRequirements :many
+SELECT
+    smcm.material_id,
+    m.name AS material_name,
+    smcm.unit_id,
+    u.code AS unit_code,
+    SUM(smcm.qty_per_portion * sm.planned_portions)::NUMERIC(18,4) AS gross_requirement_qty
+FROM scheduled_menus sm
+JOIN scheduled_menu_components smc ON smc.scheduled_menu_id = sm.id
+JOIN scheduled_menu_component_materials smcm ON smcm.scheduled_menu_component_id = smc.id
+JOIN materials m ON m.id = smcm.material_id
+JOIN units u ON u.id = smcm.unit_id
+WHERE sm.id = $1
+GROUP BY smcm.material_id, m.name, smcm.unit_id, u.code
+ORDER BY m.name ASC
+`
+
+type GetScheduledMenuGrossRequirementsRow struct {
+	MaterialID          pgtype.UUID    `json:"material_id"`
+	MaterialName        string         `json:"material_name"`
+	UnitID              pgtype.UUID    `json:"unit_id"`
+	UnitCode            string         `json:"unit_code"`
+	GrossRequirementQty pgtype.Numeric `json:"gross_requirement_qty"`
+}
+
+func (q *Queries) GetScheduledMenuGrossRequirements(ctx context.Context, id pgtype.UUID) ([]GetScheduledMenuGrossRequirementsRow, error) {
+	rows, err := q.db.Query(ctx, getScheduledMenuGrossRequirements, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetScheduledMenuGrossRequirementsRow
+	for rows.Next() {
+		var i GetScheduledMenuGrossRequirementsRow
+		if err := rows.Scan(
+			&i.MaterialID,
+			&i.MaterialName,
+			&i.UnitID,
+			&i.UnitCode,
+			&i.GrossRequirementQty,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listMenuTemplateComponentMaterials = `-- name: ListMenuTemplateComponentMaterials :many
 SELECT
     mtcm.id,
