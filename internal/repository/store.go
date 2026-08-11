@@ -55,6 +55,11 @@ func (s *Store) GetMaterialUsage(ctx context.Context, id pgtype.UUID) (db.Materi
 func (s *Store) ListMaterialUsageItems(ctx context.Context, id pgtype.UUID) ([]db.ListMaterialUsageItemsRow, error) { return s.queries.ListMaterialUsageItems(ctx, id) }
 func (s *Store) ListMaterialUsageApprovals(ctx context.Context, id pgtype.UUID) ([]db.MaterialUsageApproval, error) { return s.queries.ListMaterialUsageApprovals(ctx, id) }
 func (s *Store) SubmitMaterialUsage(ctx context.Context, arg db.SubmitMaterialUsageParams) (db.MaterialUsage, error) { return s.queries.SubmitMaterialUsage(ctx, arg) }
+func (s *Store) GetStockOpname(ctx context.Context, id pgtype.UUID) (db.StockOpname, error) { return s.queries.GetStockOpnameByID(ctx, id) }
+func (s *Store) ListStockOpnameItems(ctx context.Context, id pgtype.UUID) ([]db.ListStockOpnameItemsRow, error) { return s.queries.ListStockOpnameItems(ctx, id) }
+func (s *Store) ListStockAdjustmentsByOpname(ctx context.Context, id pgtype.UUID) ([]db.StockAdjustment, error) { return s.queries.ListStockAdjustmentsByOpname(ctx, id) }
+func (s *Store) GetStockAdjustment(ctx context.Context, id pgtype.UUID) (db.StockAdjustment, error) { return s.queries.GetStockAdjustmentByID(ctx, id) }
+func (s *Store) ListStockAdjustmentApprovals(ctx context.Context, id pgtype.UUID) ([]db.StockAdjustmentApproval, error) { return s.queries.ListStockAdjustmentApprovals(ctx, id) }
 
 func (s *Store) WithTx(ctx context.Context, fn func(*db.Queries) error) error {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
