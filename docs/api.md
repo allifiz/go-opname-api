@@ -5,7 +5,7 @@ This file tracks the HTTP contract surface. Detailed schemas belong in code/Open
 ## Conventions
 - Base path: `/api/v1`.
 - JSON request/response.
-- `GET /health` and `POST /api/v1/auth/login` are public.
+- `GET /health`, `POST /api/v1/auth/login`, and the conditionally enabled one-time `POST /api/v1/auth/bootstrap` are public routes.
 - Every other `/api/v1` endpoint requires `Authorization: Bearer <JWT>`.
 - Missing/invalid/expired token -> `401`.
 - Authenticated role not permitted -> `403`.
@@ -44,8 +44,42 @@ Token claims:
 
 Returns the user ID, role, and email resolved from the validated token.
 
-### Initial User Provisioning
-No public default credential is seeded by migrations. Initial users must be provisioned securely outside the public login endpoint until a dedicated provisioning/admin workflow is implemented.
+### Initial User Bootstrap
+`POST /api/v1/auth/bootstrap`
+
+This is a one-time provisioning route for a database that has no users. It is disabled when `BOOTSTRAP_TOKEN` is empty. When configured, the token must be at least 32 characters and is supplied through:
+
+```text
+X-Bootstrap-Token: <BOOTSTRAP_TOKEN>
+```
+
+Example body:
+
+```json
+{
+  "name": "Initial Accountant",
+  "email": "akuntan@example.com",
+  "password": "a-strong-initial-password",
+  "role": "AKUNTAN"
+}
+```
+
+Rules:
+- valid bootstrap token is required before provisioning logic runs;
+- password length must be 12-72 characters and is stored only as a bcrypt hash;
+- role must be one of `CHEF`, `AHLI_GIZI`, `PENGAWAS_BAHAN_BAKU`, `AKUNTAN`, or `KEPALA_SPPG`;
+- the database serializes bootstrap attempts by locking `users`, then verifies that the user count is zero;
+- exactly one initial user can be created even when bootstrap requests race concurrently;
+- once any user exists, later bootstrap attempts return `409`;
+- no default credential is seeded by migrations.
+
+Operationally, set a high-entropy `BOOTSTRAP_TOKEN`, provision the first user, then remove/unset `BOOTSTRAP_TOKEN` and restart the API. Additional-user provisioning remains a separate authenticated workflow to define once its authorization policy is approved.
+
+Bootstrap-specific responses:
+- bootstrap disabled -> `404`;
+- missing/invalid `X-Bootstrap-Token` -> `401`;
+- invalid body/role/password -> `400`;
+- initial user already exists -> `409`.
 
 ## RBAC
 
@@ -192,10 +226,11 @@ JWT identity becomes `approver_id`. Only Chef and Accountant may decide, and two
 ## Important Business Errors
 Current categories:
 - invalid/missing credentials -> `401`
+- invalid bootstrap token -> `401`
 - authenticated role denied -> `403`
 - invalid input -> `400`
-- resource not found -> `404`
-- invalid transition/conflict -> `409`
+- resource not found or disabled bootstrap route -> `404`
+- invalid transition/conflict or bootstrap already closed -> `409`
 - `PO_CANCEL_DEADLINE_PASSED` -> `409`
 - `INSUFFICIENT_STOCK` -> `422`
 - `SHORTAGE_QTY_EXCEEDED` -> `422`

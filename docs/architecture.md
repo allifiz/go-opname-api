@@ -10,7 +10,7 @@
 - Air for local hot reload
 - GitHub Actions for executable validation
 - JWT HS256 for API authentication
-- bcrypt for password verification
+- bcrypt for password hashing/verification
 
 ## Application Flow
 Use a pragmatic layered structure:
@@ -18,7 +18,7 @@ Use a pragmatic layered structure:
 ```text
 HTTP Request
     ↓
-JWT Authentication Middleware
+JWT Authentication Middleware (protected routes)
     ↓
 RBAC Guard
     ↓
@@ -79,9 +79,43 @@ JWT claims contain:
 
 `JWT_SECRET` is required at application startup and must contain at least 32 characters.
 
-`GET /health` and login are public. Every other `/api/v1` route passes through authentication middleware. The middleware validates JWT signature and expiry, then places the actor ID, role, and email in Fiber locals.
+`GET /health` and login are public. Every other normal `/api/v1` route passes through authentication middleware. The middleware validates JWT signature and expiry, then places the actor ID, role, and email in Fiber locals.
 
-RBAC runs at the HTTP boundary before the business handler. Operational actor fields that previously came from request bodies are overwritten from the authenticated JWT identity. Services continue to validate role-sensitive approval identity against database users where that validation is part of the domain transaction.
+### Initial-user bootstrap
+
+Initial provisioning is handled by the separate public route `POST /api/v1/auth/bootstrap`. It is intentionally outside JWT middleware because no user exists yet to authenticate.
+
+The route is disabled unless `BOOTSTRAP_TOKEN` is configured. A configured token must contain at least 32 characters and is supplied in `X-Bootstrap-Token`. Service comparison hashes both values with SHA-256 and performs a constant-time comparison of the digests.
+
+Bootstrap flow:
+
+```text
+POST /api/v1/auth/bootstrap
+    ↓
+validate configured bootstrap token
+    ↓
+validate name/email/password/seeded role
+    ↓
+bcrypt password hash
+    ↓
+begin PostgreSQL transaction
+    ↓
+lock users table (SHARE ROW EXCLUSIVE)
+    ↓
+require user count == 0
+    ↓
+resolve seeded role + insert first user
+    ↓
+commit
+```
+
+The table lock serializes concurrent bootstrap requests, so two simultaneous requests cannot both observe an empty user table and create separate first users. Once any user exists, bootstrap is permanently closed by database state. Operators should remove `BOOTSTRAP_TOKEN` after provisioning the first user.
+
+The bootstrap repository method uses pgx directly because the operation requires an explicit transaction-scoped table lock around the count and insert; normal generated CRUD continues to use sqlc.
+
+No new `ADMIN` role is invented. Provisioning additional users remains TBD until an authenticated authorization policy is approved.
+
+RBAC runs at the HTTP boundary before normal business handlers. Operational actor fields that previously came from request bodies are overwritten from the authenticated JWT identity. Services continue to validate role-sensitive approval identity against database users where that validation is part of the domain transaction.
 
 Current write-role mapping:
 - Ahli Gizi: period/menu/scheduled-menu writes.
@@ -90,7 +124,7 @@ Current write-role mapping:
 - Akuntan: procurement verify/reject.
 - Chef or Akuntan: usage and stock-adjustment decisions.
 
-No public default user/password is seeded. Initial user provisioning remains a separate secure operational concern.
+No public default user/password is seeded.
 
 ## Continuous Validation
 GitHub Actions is the canonical executable validation environment for repository changes that need external tooling or PostgreSQL.
@@ -115,7 +149,7 @@ CI performs:
 6. Roll migrations back to version 0.
 7. Apply all migrations again.
 8. Run `sqlc generate`.
-9. Run `go test ./...` including PostgreSQL integration, concurrency, and authentication tests.
+9. Run `go test ./...` including PostgreSQL integration, concurrency, authentication, RBAC, and bootstrap-concurrency tests.
 10. Run `go build ./...`.
 11. Commit regenerated `internal/database/generated` files back to `main` when sqlc output changes.
 
@@ -144,9 +178,10 @@ Reservations are kept separate from `stock_movements` because a reservation does
 Entities that require dual approval use a monotonically increasing `version`. Approval rows reference the entity version they approved. Any material edit increments the version and makes old approvals invalid without deleting history.
 
 ### Transaction Boundaries
-Operations that change stock or reservations must use database transactions and locking where concurrent requests could violate invariants.
+Operations that change stock, reservations, or one-time provisioning state must use database transactions and locking where concurrent requests could violate invariants.
 
 Examples:
+- initial-user bootstrap
 - procurement stock check + reservation
 - receipt + stock IN
 - direct purchase + stock IN

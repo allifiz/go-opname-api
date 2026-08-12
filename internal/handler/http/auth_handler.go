@@ -1,6 +1,7 @@
 package http
 
 import (
+	"errors"
 	"strings"
 
 	"github.com/allifiz/go-opname-api/internal/service"
@@ -13,20 +14,21 @@ const (
 	localEmail  = "auth_email"
 )
 
-type AuthHandler struct { service *service.AuthService }
+type AuthHandler struct{ service *service.AuthService }
 
 func NewAuthHandler(service *service.AuthService) *AuthHandler { return &AuthHandler{service: service} }
 
 func RegisterPublicAuthRoutes(app *fiber.App, handler *AuthHandler) {
 	app.Post("/api/v1/auth/login", handler.Login)
+	app.Post("/api/v1/auth/bootstrap", handler.BootstrapInitialUser)
 }
 
 func RegisterProtectedAuthRoutes(app *fiber.App) {
 	app.Get("/api/v1/auth/me", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{"data": fiber.Map{
 			"user_id": c.Locals(localUserID),
-			"role": c.Locals(localRole),
-			"email": c.Locals(localEmail),
+			"role":    c.Locals(localRole),
+			"email":   c.Locals(localEmail),
 		}})
 	})
 }
@@ -34,14 +36,37 @@ func RegisterProtectedAuthRoutes(app *fiber.App) {
 func (h *AuthHandler) Login(c *fiber.Ctx) error {
 	var input service.LoginInput
 	if err := c.BodyParser(&input); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error":"invalid json body"})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid json body"})
 	}
 	data, err := h.service.Login(c.UserContext(), input)
 	if err != nil {
-		if err == service.ErrUnauthorized { return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error":"invalid credentials"}) }
+		if err == service.ErrUnauthorized {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid credentials"})
+		}
 		return respondError(c, err)
 	}
-	return c.JSON(fiber.Map{"data":data})
+	return c.JSON(fiber.Map{"data": data})
+}
+
+func (h *AuthHandler) BootstrapInitialUser(c *fiber.Ctx) error {
+	var input service.BootstrapInitialUserInput
+	if err := c.BodyParser(&input); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid json body"})
+	}
+	data, err := h.service.BootstrapInitialUser(c.UserContext(), strings.TrimSpace(c.Get("X-Bootstrap-Token")), input)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrBootstrapDisabled):
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "bootstrap provisioning is disabled"})
+		case errors.Is(err, service.ErrBootstrapUnauthorized):
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid bootstrap token"})
+		case errors.Is(err, service.ErrBootstrapClosed):
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "initial user already provisioned"})
+		default:
+			return respondError(c, err)
+		}
+	}
+	return c.Status(fiber.StatusCreated).JSON(fiber.Map{"data": data})
 }
 
 func AuthRequired(secret string) fiber.Handler {
@@ -49,11 +74,13 @@ func AuthRequired(secret string) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		header := strings.TrimSpace(c.Get("Authorization"))
 		if !strings.HasPrefix(strings.ToLower(header), "bearer ") {
-			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error":"missing bearer token"})
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "missing bearer token"})
 		}
 		token := strings.TrimSpace(header[len("Bearer "):])
 		claims, err := service.ParseAuthToken(token, key)
-		if err != nil { return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error":"invalid or expired token"}) }
+		if err != nil {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid or expired token"})
+		}
 		c.Locals(localUserID, claims.UserID)
 		c.Locals(localRole, claims.Role)
 		c.Locals(localEmail, claims.Email)
@@ -68,10 +95,14 @@ func ActorID(c *fiber.Ctx) string {
 
 func RequireRoles(roles ...string) fiber.Handler {
 	allowed := make(map[string]struct{}, len(roles))
-	for _, role := range roles { allowed[role] = struct{}{} }
+	for _, role := range roles {
+		allowed[role] = struct{}{}
+	}
 	return func(c *fiber.Ctx) error {
 		role, _ := c.Locals(localRole).(string)
-		if _, ok := allowed[role]; !ok { return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error":"forbidden for current role"}) }
+		if _, ok := allowed[role]; !ok {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "forbidden for current role"})
+		}
 		return c.Next()
 	}
 }

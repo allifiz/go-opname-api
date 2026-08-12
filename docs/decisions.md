@@ -169,4 +169,7 @@ V1 uses HS256 implemented with Go standard-library HMAC/SHA-256. Tokens expire a
 Role authorization is enforced at the HTTP route boundary. Ahli Gizi controls menu-planning writes; Pengawas controls warehouse/procurement operational writes; Akuntan controls procurement verification; Chef and Akuntan control dual-approval decisions. Authenticated reads remain broadly available until a narrower approved policy exists.
 
 ## D-056: No public default credential is seeded
-Migrations do not create a reusable default user/password. Initial-user provisioning is a separate secure operational workflow to implement, avoiding a known credential embedded in repository history.
+Migrations do not create a reusable default user/password. Initial-user provisioning is a separate secure operational workflow, avoiding a known credential embedded in repository history.
+
+## D-057: Initial-user bootstrap is secret-gated, one-time, and database-serialized
+`POST /api/v1/auth/bootstrap` is enabled only when a `BOOTSTRAP_TOKEN` of at least 32 characters is configured. The token is provided through `X-Bootstrap-Token`. The password is bcrypt-hashed and the requested role must already exist in the approved seeded role set. Provisioning runs in a PostgreSQL transaction that locks `users`, requires the user table to be empty, and then inserts the first user. This guarantees that concurrent bootstrap requests cannot create multiple first users. After any user exists the bootstrap flow is closed, and operators should unset `BOOTSTRAP_TOKEN`. This mechanism does not invent an `ADMIN` role; authorization for creating later users remains a separate decision.

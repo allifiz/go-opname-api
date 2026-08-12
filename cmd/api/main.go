@@ -19,17 +19,23 @@ func main() {
 	defer stop()
 
 	cfg, err := config.Load()
-	if err != nil { log.Fatal(err) }
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	db, err := config.OpenDatabase(ctx, cfg.DatabaseURL)
-	if err != nil { log.Fatal(err) }
+	if err != nil {
+		log.Fatal(err)
+	}
 	defer db.Close()
 
 	app := fiber.New(fiber.Config{AppName: "Stock Opname API"})
-	app.Get("/health", func(c *fiber.Ctx) error { return c.Status(fiber.StatusOK).JSON(fiber.Map{"status":"ok"}) })
+	app.Get("/health", func(c *fiber.Ctx) error {
+		return c.Status(fiber.StatusOK).JSON(fiber.Map{"status": "ok"})
+	})
 
 	store := repository.NewStore(db)
-	authService := service.NewAuthService(store, cfg.JWTSecret)
+	authService := service.NewAuthService(store, cfg.JWTSecret, cfg.BootstrapToken)
 	httpHandler.RegisterPublicAuthRoutes(app, httpHandler.NewAuthHandler(authService))
 
 	app.Use("/api/v1", httpHandler.AuthRequired(cfg.JWTSecret))
@@ -55,9 +61,13 @@ func main() {
 
 	go func() {
 		<-ctx.Done()
-		if err := app.Shutdown(); err != nil { log.Printf("shutdown server: %v", err) }
+		if err := app.Shutdown(); err != nil {
+			log.Printf("shutdown server: %v", err)
+		}
 	}()
 
 	log.Printf("API listening on :%s", cfg.AppPort)
-	if err := app.Listen(":" + cfg.AppPort); err != nil { log.Printf("server stopped: %v", err) }
+	if err := app.Listen(":" + cfg.AppPort); err != nil {
+		log.Printf("server stopped: %v", err)
+	}
 }

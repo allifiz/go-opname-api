@@ -30,7 +30,7 @@ Menu / Scheduled Menu
 → Stock Adjustment + Dual Approval
 ```
 
-Concurrency-sensitive flow divalidasi dengan PostgreSQL asli di GitHub Actions. Authentication/JWT + RBAC juga sudah diterapkan pada HTTP API.
+Concurrency-sensitive flow divalidasi dengan PostgreSQL asli di GitHub Actions. Authentication/JWT + RBAC sudah diterapkan pada HTTP API, termasuk bootstrap aman untuk membuat user pertama tanpa default credential.
 
 ## Prasyarat
 
@@ -84,9 +84,10 @@ Contoh:
 APP_PORT=8080
 DATABASE_URL=postgres://opname:opname@localhost:5432/opname?sslmode=disable
 JWT_SECRET=change-this-development-secret-at-least-32-characters
+BOOTSTRAP_TOKEN=
 ```
 
-`JWT_SECRET` wajib ada dan minimal 32 karakter. Gunakan secret berbeda dan kuat untuk production.
+`JWT_SECRET` wajib ada dan minimal 32 karakter. `BOOTSTRAP_TOKEN` opsional; jika diisi, nilainya juga wajib minimal 32 karakter dan hanya dipakai untuk membuat user pertama. Gunakan secret acak yang berbeda untuk production.
 
 ### 4. Dependency
 
@@ -106,11 +107,47 @@ go run github.com/pressly/goose/v3/cmd/goose@latest -dir migrations postgres "po
 go run github.com/sqlc-dev/sqlc/cmd/sqlc@latest generate
 ```
 
-### 7. Jalankan API
+### 7. Buat user pertama
+
+Sebelum API dijalankan pertama kali, isi `BOOTSTRAP_TOKEN` di `.env` dengan secret acak minimal 32 karakter. Contoh PowerShell untuk membuat token acak:
 
 ```powershell
+$bytes = New-Object byte[] 32
+[System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+[Convert]::ToHexString($bytes).ToLower()
+```
+
+Simpan hasilnya ke `.env`, lalu jalankan API:
+
+```powershell
+$bootstrapToken = [Convert]::ToHexString($bytes).ToLower()
+(Get-Content .env) -replace '^BOOTSTRAP_TOKEN=.*$', "BOOTSTRAP_TOKEN=$bootstrapToken" | Set-Content .env
 go run ./cmd/api
 ```
+
+Di terminal PowerShell lain, gunakan nilai token yang sama untuk provision user pertama:
+
+```powershell
+$bootstrapToken = "<nilai BOOTSTRAP_TOKEN dari .env>"
+$headers = @{ "X-Bootstrap-Token" = $bootstrapToken }
+$body = @{
+  name = "Initial Accountant"
+  email = "akuntan@example.com"
+  password = "ganti-dengan-password-kuat"
+  role = "AKUNTAN"
+} | ConvertTo-Json
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://localhost:8080/api/v1/auth/bootstrap `
+  -Headers $headers `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+Role bootstrap yang valid: `CHEF`, `AHLI_GIZI`, `PENGAWAS_BAHAN_BAKU`, `AKUNTAN`, `KEPALA_SPPG`. Password harus 12-72 karakter.
+
+Setelah user pertama berhasil dibuat, kosongkan/hapus `BOOTSTRAP_TOKEN` dari environment lalu restart API. Database juga menolak bootstrap berikutnya selama sudah ada user, jadi pengaman tidak hanya bergantung pada konfigurasi.
 
 ### 8. Health check
 
@@ -126,7 +163,7 @@ Invoke-RestMethod http://localhost:8080/health
 
 ## Authentication
 
-Public endpoint:
+Public endpoint login:
 
 ```text
 POST /api/v1/auth/login
@@ -157,7 +194,9 @@ JWT berlaku 8 jam. Password user disimpan sebagai bcrypt hash di `users.password
 
 ### Initial user
 
-Repository sengaja **tidak men-seed default username/password**. User awal harus diprovision secara aman ke tabel `users` dengan bcrypt password hash sampai workflow provisioning/admin khusus tersedia. Ini sedikit lebih merepotkan daripada `admin/admin`, tetapi jauh lebih sedikit merepotkan daripada menjelaskan insiden keamanan.
+Repository sengaja **tidak men-seed default username/password**. User pertama dibuat melalui one-time bootstrap secret seperti langkah setup di atas. Dua request bootstrap yang datang bersamaan diserialisasi oleh database, sehingga hanya satu yang dapat membuat user pertama.
+
+Workflow untuk membuat user tambahan setelah bootstrap belum ditetapkan karena permission administratifnya belum disepakati in business flow. Tidak ada role `ADMIN` baru yang diselundupkan diam-diam hanya demi membuat endpoint terasa lengkap.
 
 ## Role utama
 
@@ -219,12 +258,13 @@ migration up
 → go build ./...
 ```
 
-Integration tests mencakup concurrency inventory serta authentication/RBAC.
+Integration tests mencakup concurrency inventory, authentication/RBAC, dan concurrent initial-user bootstrap.
 
 ## Keamanan
 
 - Jangan commit `.env`.
 - Jangan gunakan credential database development di production.
 - Jangan gunakan `JWT_SECRET` contoh untuk production.
+- Jangan commit atau membagikan `BOOTSTRAP_TOKEN`; unset setelah provisioning user pertama.
 - Jangan menyimpan password plaintext; gunakan bcrypt.
 - Audit actor pada HTTP write-flow berasal dari JWT, bukan UUID yang dipercaya dari body request.
